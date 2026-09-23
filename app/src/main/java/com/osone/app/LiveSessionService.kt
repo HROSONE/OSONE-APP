@@ -21,6 +21,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.TextView
 
 /** A chamada pertence ao serviço: sair da Activity não libera o microfone. */
@@ -114,7 +115,7 @@ class LiveSessionService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(if (sharing) "OSONE · voz e tela ativas" else "OSONE · voz ativa")
+            .setContentTitle(if (sharing) "OSTIE · voz e tela ativas" else "OSTIE · voz ativa")
             .setContentText("Toque para voltar à conversa. Encerrar para desligar o microfone.")
             .setContentIntent(open).setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Encerrar", close).build()
@@ -124,14 +125,10 @@ class LiveSessionService : Service() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return
         overlayExpanded = false
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val orb = TextView(this).apply {
-            text = "✦"
-            textSize = 28f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(108, 62, 222), Color.rgb(54, 183, 201))).apply { shape = GradientDrawable.OVAL }
-            contentDescription = "OSONE: toque para mostrar ações; arraste para mover"
+        val orb = ImageView(this).apply {
+            setImageResource(R.drawable.ostie_orb)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "OSTIE: toque para mostrar ações; arraste para mover"
         }
         root.addView(orb, LinearLayout.LayoutParams(dp(56), dp(56)))
         val actions = LinearLayout(this).apply {
@@ -148,7 +145,7 @@ class LiveSessionService : Service() {
                 setOnClickListener { command() }
             })
         }
-        action("Voltar ao OSONE") {
+        action("Voltar ao OSTIE") {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
             overlayExpanded = false; actions.visibility = View.GONE; updateBubbleSize(root)
         }

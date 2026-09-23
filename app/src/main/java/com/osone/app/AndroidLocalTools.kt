@@ -69,7 +69,7 @@ class AndroidLocalTools(private val context: Context) {
             }
             "inspect_screen", "interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen" -> {
                 val service = OsoneAccessibilityService.active
-                    ?: return JSONObject().put("erro", "Ative OSONE em Ajustes > Acessibilidade para controlar outros apps.")
+                    ?: return JSONObject().put("erro", "Ative OSTIE em Ajustes > Acessibilidade para controlar outros apps.")
                 when (name) {
                     "inspect_screen" -> service.inspect()
                     "interact_ui" -> service.interact(args.optString("texto"), args.optString("acao"))

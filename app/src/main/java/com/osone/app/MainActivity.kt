@@ -2,6 +2,8 @@ package com.osone.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
@@ -10,12 +12,15 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,9 +39,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -46,8 +53,10 @@ import java.text.SimpleDateFormat
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val viewModel: OsoneViewModel by viewModels()
     private val live by lazy { LiveSession.get(application) }
+    private val writing by lazy { WritingWorkspace.get(application) }
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
+    private var showWriting by mutableStateOf(false)
     private var permissionError by mutableStateOf(false)
     private var darkMode by mutableStateOf(false)
     private var bubblePermission by mutableStateOf(false)
@@ -95,6 +104,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 Surface(Modifier.fillMaxSize()) {
                     if (showLive) LiveScreen(live, diagnostics, bubblePermission, accessibilityEnabled,
                         onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                        onWriting = { showWriting = true; showLive = false },
                         onOverlay = {
                             if (Settings.canDrawOverlays(this)) LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
                             else {
@@ -117,11 +127,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             darkMode = enabled
                             getSharedPreferences("osone_config", 0).edit().putBoolean("dark_mode", enabled).apply()
                         }, onBack = { showSettings = false }, diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
+                    else if (showWriting) WritingScreen(writing, live, diagnostics,
+                        onDiagnostics = { showDiagnostics = true },
+                        onBack = { showWriting = false },
+                        onLive = {
+                            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                                openLive()
+                            else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                        })
                     else ChatScreen(viewModel, onAttach = { pickFile.launch(arrayOf("*/*")) }, onMic = {
                             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                                 openLive()
                             else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-                        }, permissionError = permissionError, onSettings = { showSettings = true }, diagnostics = diagnostics,
+                        }, permissionError = permissionError, onSettings = { showSettings = true },
+                        onWriting = { showWriting = true }, diagnostics = diagnostics,
                         onDiagnostics = { showDiagnostics = true }, readAloud = readAloud,
                         onReadAloud = { readAloud = !readAloud }, onAnswer = { answer ->
                             if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
@@ -148,10 +167,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
 @Composable
 private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Unit, permissionError: Boolean,
-    onSettings: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
+    onSettings: () -> Unit, onWriting: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
     readAloud: Boolean, onReadAloud: () -> Unit,
     onAnswer: (String) -> Unit) {
     var draft by remember { mutableStateOf("") }
+    var menuExpanded by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
     val scope = rememberCoroutineScope()
     LaunchedEffect(viewModel.messages.size) {
@@ -162,12 +182,30 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: (
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("OSONE APP", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            Box {
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = "Abrir menu" }) {
+                    Text("☰", style = MaterialTheme.typography.headlineSmall)
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Aba de Escrita") }, onClick = {
+                        menuExpanded = false; onWriting()
+                    })
+                }
+            }
+            Image(painterResource(R.drawable.ostie_orb), contentDescription = "Logo OSTIE",
+                modifier = Modifier.size(42.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("OSTIE", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             DiagnosticsDot(diagnostics, onDiagnostics)
-            TextButton(onClick = onReadAloud) { Text(if (readAloud) "🔊 Voz ligada" else "🔇 Voz desligada") }
-            TextButton(onClick = onSettings) { Text("Ajustes") }
+            IconButton(onClick = onSettings, modifier = Modifier.semantics { contentDescription = "Ajustes" }) {
+                Text("⚙", style = MaterialTheme.typography.headlineSmall)
+            }
         }
-        Text("Seu assistente no Android", color = MaterialTheme.colorScheme.secondary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Seu assistente no Android", color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.weight(1f))
+            TextButton(onClick = onReadAloud) { Text(if (readAloud) "🔊 Voz ligada" else "🔇 Voz desligada") }
+        }
         Text("Cérebro do chat: ${viewModel.selectedChatLabel}", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         LazyColumn(state = scroll, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -177,7 +215,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: (
                     Surface(color = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(16.dp), modifier = if (user) Modifier.widthIn(max = 300.dp) else Modifier.fillMaxWidth(0.90f)) {
                         Column(Modifier.padding(14.dp)) {
-                            Text(if (user) "Você" else "OSONE", style = MaterialTheme.typography.labelMedium)
+                            Text(if (user) "Você" else "OSTIE", style = MaterialTheme.typography.labelMedium)
                             Spacer(Modifier.height(4.dp))
                             Text(message.text)
                         }
@@ -188,7 +226,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: (
                 Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth(0.90f)) {
                     Column(Modifier.padding(14.dp)) {
-                        Text("OSONE · respondendo", style = MaterialTheme.typography.labelMedium)
+                        Text("OSTIE · respondendo", style = MaterialTheme.typography.labelMedium)
                         Spacer(Modifier.height(4.dp))
                         Text(viewModel.streamingText)
                     }
@@ -226,6 +264,77 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: (
             }
         }
     }
+}
+
+@Composable
+private fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
+    diagnostics: AppDiagnostics, onDiagnostics: () -> Unit, onBack: () -> Unit, onLive: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var preview by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Conversa") }
+            Spacer(Modifier.weight(1f))
+            DiagnosticsDot(diagnostics, onDiagnostics)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.ostie_orb), contentDescription = null, modifier = Modifier.size(36.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Aba de Escrita", style = MaterialTheme.typography.headlineSmall)
+        }
+        Text(if (live.connected) "Live ligado · peça ao OSTIE um texto ou código."
+            else "Peça ao Gemini Live um texto ou código para preencher esta aba.",
+            style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = onLive) { Text(if (live.connected) "🎙️ Voltar à conversa Live" else "🎙️ Iniciar Live") }
+        if (!live.localToolsAvailable && live.connected) Text("Este modelo desativou as ferramentas; tente outro modelo Live.",
+            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp))
+        Text(workspace.title, style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Visualizar como HTML", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Switch(checked = workspace.format == "html", onCheckedChange = { workspace.updateFormat(if (it) "html" else "text") })
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { preview = workspace.content },
+                enabled = workspace.format == "html" && workspace.content.isNotBlank()) { Text("▶ Play") }
+            OutlinedButton(onClick = {
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                    ClipData.newPlainText("OSTIE · Aba de Escrita", workspace.content))
+                message = "Texto copiado."
+            }, enabled = workspace.content.isNotBlank()) { Text("Copiar") }
+            OutlinedButton(onClick = { confirmDelete = true }, enabled = workspace.content.isNotBlank()) { Text("Apagar") }
+        }
+        if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
+        if (preview != null) {
+            TextButton(onClick = { preview = null }) { Text("← Voltar ao editor") }
+            AndroidView(factory = { activity -> WebView(activity).apply {
+                settings.javaScriptEnabled = true
+                settings.blockNetworkLoads = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.domStorageEnabled = false
+                settings.javaScriptCanOpenWindowsAutomatically = false
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean = true
+                }
+                setBackgroundColor(android.graphics.Color.WHITE)
+            } }, update = { web ->
+                web.loadDataWithBaseURL(null, preview.orEmpty(), "text/html", "UTF-8", null)
+            }, onRelease = { it.destroy() }, modifier = Modifier.fillMaxWidth().weight(1f))
+        } else {
+            OutlinedTextField(value = workspace.content, onValueChange = workspace::updateContent,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                label = { Text("Escreva ou edite aqui") }, placeholder = {
+                    Text("Converse com o Gemini Live e peça: crie um texto ou um código HTML na Aba de Escrita.")
+                })
+        }
+    }
+    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false },
+        title = { Text("Apagar o documento?") }, text = { Text("O texto desta aba será apagado do aparelho.") },
+        confirmButton = { TextButton(onClick = { workspace.clear(); preview = null; message = ""; confirmDelete = false }) { Text("Apagar") } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } })
 }
 
 @Composable
@@ -411,6 +520,7 @@ private fun LiveModelPicker(live: LiveVoiceViewModel) {
 @Composable
 private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bubblePermission: Boolean,
     accessibilityEnabled: Boolean, onAccessibility: () -> Unit,
+    onWriting: () -> Unit,
     onOverlay: () -> Unit, onShareScreen: () -> Unit, onStopScreen: () -> Unit,
     onEnd: () -> Unit, onDiagnostics: () -> Unit, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -437,9 +547,10 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Chat") }
             Spacer(Modifier.weight(1f))
-            Text("OSONE LIVE", style = MaterialTheme.typography.titleLarge)
+            Text("OSTIE LIVE", style = MaterialTheme.typography.titleLarge)
             DiagnosticsDot(diagnostics, onDiagnostics)
         }
+        TextButton(onClick = onWriting) { Text("☰ Aba de Escrita") }
         Spacer(Modifier.height(12.dp))
         LiveModelPicker(live)
         LiveVoicePicker(live)
@@ -473,7 +584,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
         }
         OutlinedButton(onClick = if (live.screenSharing) onStopScreen else onShareScreen,
             enabled = live.active != null) {
-            Text(if (live.screenSharing) "Parar de mostrar tela" else "Mostrar tela ao OSONE")
+            Text(if (live.screenSharing) "Parar de mostrar tela" else "Mostrar tela ao OSTIE")
         }
         if (live.screenSharing) {
             val age = if (live.lastScreenFrameAt == 0L) Long.MAX_VALUE
@@ -541,18 +652,18 @@ private fun VoiceOrb(input: Float, output: Float, connected: Boolean) {
         infiniteRepeatable(tween(2100, easing = EaseInOutSine), RepeatMode.Reverse), label = "respiração")
     val energy by animateFloatAsState(maxOf(input, output).coerceIn(0f, 1f),
         animationSpec = tween(100), label = "energia")
-    val speaking = output > input
-    val core = if (speaking) Color(0xFF24D2DE) else Color(0xFF8956EA)
-    Canvas(Modifier.fillMaxWidth().height(230.dp)) {
-        val radius = size.minDimension * (0.27f + breath * 0.016f + energy * 0.09f)
-        val center = center
-        drawCircle(Brush.radialGradient(listOf(core.copy(alpha = 0.25f), core.copy(alpha = 0.07f),
-            Color.Transparent), center = center, radius = radius * 1.55f), radius = radius * 1.55f)
-        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.95f), core.copy(alpha = 0.9f),
-            Color(0xFF292175)), center = center, radius = radius), radius = radius)
-        drawCircle(core.copy(alpha = if (connected) 0.55f else 0.16f),
-            radius = radius * (1.13f + energy * 0.12f), style = Stroke(width = 3.dp.toPx()))
-        drawCircle(core.copy(alpha = 0.22f), radius = radius * (1.28f + energy * 0.16f),
-            style = Stroke(width = 2.dp.toPx()))
+    val core = if (output > input) Color(0xFF3ED6FF) else Color(0xFF488DFF)
+    Box(Modifier.fillMaxWidth().height(230.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxWidth().height(230.dp)) {
+            val radius = size.minDimension * (0.34f + breath * 0.015f + energy * 0.04f)
+            drawCircle(Brush.radialGradient(listOf(core.copy(alpha = 0.25f), core.copy(alpha = 0.08f),
+                Color.Transparent), center = center, radius = radius * 1.4f), radius = radius * 1.4f)
+            drawCircle(core.copy(alpha = if (connected) 0.68f else 0.18f),
+                radius = radius * (1.12f + energy * 0.08f), style = Stroke(width = 3.dp.toPx()))
+            drawCircle(core.copy(alpha = 0.28f), radius = radius * 1.23f,
+                style = Stroke(width = 2.dp.toPx()))
+        }
+        Image(painterResource(R.drawable.ostie_orb), contentDescription = "OSTIE ouvindo e falando",
+            modifier = Modifier.size((178f + energy * 20f).dp))
     }
 }

@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="accessibility_description">Permite ao OSONE ler os controles visíveis e tocar ou digitar em outros apps quando você pedir por voz. Você pode desativar em Acessibilidade.</string>
+    <string name="accessibility_description">Permite ao OSTIE ler os controles visíveis e tocar ou digitar em outros apps quando você pedir por voz. Você pode desativar em Acessibilidade.</string>
 </resources>

@@ -23,7 +23,7 @@ class GeminiClient {
         }
         val request = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text",
-                "Você é OSONE APP, assistente pessoal de Henrique no Android. Responda naturalmente no idioma do usuário. Dê respostas claras, específicas e úteis; use o contexto da conversa, e apresente passos práticos quando necessários. Evite texto genérico e repetição. Seja honesto sobre incertezas. Não diga que abriu aplicativos, acessou arquivos ou usou ferramentas se não fez isso."))))
+                "Você é OSTIE, assistente pessoal de Henrique no Android. Responda naturalmente no idioma do usuário. Dê respostas claras, específicas e úteis; use o contexto da conversa, e apresente passos práticos quando necessários. Evite texto genérico e repetição. Seja honesto sobre incertezas. Não diga que abriu aplicativos, acessou arquivos ou usou ferramentas se não fez isso."))))
             .put("contents", contents)
         val thinking = if (model == ChatModel.GEMINI_25) JSONObject().put("thinkingBudget", when (mode) {
             ThinkingMode.FAST -> 0

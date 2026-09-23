@@ -25,6 +25,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private val secrets = SecureKeyStore(application)
     private val diagnostics = AppDiagnostics.get(application)
     private val localTools = AndroidLocalTools(application)
+    private val writing = WritingWorkspace.get(application)
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -179,9 +180,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("generationConfig", generation)
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSONE APP, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Use ferramentas locais quando Henrique pedir para agir. Descubra os apps com busca dinâmica; para mexer na tela, primeiro use inspect_screen, depois toque, digite, role ou navegue e confira o resultado. Se o Android recusar a ação, diga a verdade. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
+                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir para produzir um texto escrito ou código para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Para HTML, envie HTML completo e formato html. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Descubra os apps com busca dinâmica; para mexer na tela, primeiro use inspect_screen, depois toque, digite, role ou navegue e confira o resultado. Se o Android recusar a ação, diga a verdade. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
                     if (localToolsAvailable) setup.getJSONObject("setup")
-                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations())))
+                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations().put(writeDocumentDeclaration()))))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
                 }
             }
@@ -272,7 +273,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         for (index in 0 until calls.length()) {
             val action = calls.optJSONObject(index) ?: continue
             val name = action.optString("name")
-            val answer = localTools.execute(name, action.optJSONObject("args") ?: JSONObject())
+            val args = action.optJSONObject("args") ?: JSONObject()
+            val answer = if (name == "write_document") writing.publish(args) else localTools.execute(name, args)
             val response = JSONObject().put("name", name).put("response", JSONObject().put("result", answer))
             if (action.has("id")) response.put("id", action.optString("id"))
             responses.put(response)
@@ -280,6 +282,17 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (responses.length() > 0 && socket === ws && running)
             ws.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
     }
+
+    private fun writeDocumentDeclaration(): JSONObject = JSONObject()
+        .put("name", "write_document")
+        .put("description", "Publique o texto ou código completo solicitado pelo usuário na Aba de Escrita editável. Use formato html para páginas HTML que podem ter preview pelo botão Play. Não use para transcrever a conversa.")
+        .put("parameters", JSONObject().put("type", "OBJECT")
+            .put("properties", JSONObject()
+                .put("titulo", JSONObject().put("type", "STRING").put("description", "Título curto do documento"))
+                .put("conteudo", JSONObject().put("type", "STRING").put("description", "Texto ou código integral, sem omissões nem blocos markdown em torno de HTML"))
+                .put("formato", JSONObject().put("type", "STRING").put("description", "html para HTML, text para os demais textos e códigos"))
+                .put("operacao", JSONObject().put("type", "STRING").put("description", "substituir para nova versão, adicionar para continuar o documento")))
+            .put("required", JSONArray().put("titulo").put("conteudo").put("formato")))
 
     private fun handleControl(ws: WebSocket, message: JSONObject) {
         if (message.has("setupComplete")) {

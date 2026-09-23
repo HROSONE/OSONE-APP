@@ -19,7 +19,7 @@ class ChatCompletionClient {
             ChatProvider.GEMINI -> error("Use GeminiClient para Gemini")
         }
         val messages = JSONArray().put(JSONObject().put("role", "system").put("content",
-            "Você é OSONE APP, assistente pessoal de Henrique. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."))
+            "Você é OSTIE, assistente pessoal de Henrique. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."))
         history.takeLast(12).forEach { message ->
             messages.put(JSONObject().put("role", if (message.role == "model") "assistant" else "user")
                 .put("content", message.text))
