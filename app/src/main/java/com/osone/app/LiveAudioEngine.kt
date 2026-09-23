@@ -62,7 +62,8 @@ class LiveAudioEngine(
             echoCanceler?.release(); echoCanceler = null
             input.release(); output.release(); throw IllegalStateException("Áudio indisponível")
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) output.setStartThresholdInFrames(4800)
+        // O pré-buffer é controlado pela fila acima; respostas curtas também precisam tocar.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) output.setStartThresholdInFrames(1)
         try { input.startRecording() } catch (error: Exception) {
             echoCanceler?.release(); echoCanceler = null
             input.release(); output.release(); throw error
