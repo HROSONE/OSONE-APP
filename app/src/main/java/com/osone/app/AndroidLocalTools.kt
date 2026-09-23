@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.Build
 import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -91,7 +92,8 @@ class AndroidLocalTools(private val context: Context) {
                     "tela", "display", "brilho" -> Settings.ACTION_DISPLAY_SETTINGS
                     "bateria", "economia de bateria" -> Settings.ACTION_BATTERY_SAVER_SETTINGS
                     "aplicativos", "apps" -> Settings.ACTION_APPLICATION_SETTINGS
-                    "notificacoes" -> Settings.ACTION_NOTIFICATION_SETTINGS
+                    "notificacoes" -> if (Build.VERSION.SDK_INT >= 33)
+                        Settings.ACTION_ALL_APPS_NOTIFICATION_SETTINGS else Settings.ACTION_APPLICATION_SETTINGS
                     "acessibilidade" -> Settings.ACTION_ACCESSIBILITY_SETTINGS
                     "privacidade", "seguranca" -> Settings.ACTION_SECURITY_SETTINGS
                     "localizacao", "local" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
