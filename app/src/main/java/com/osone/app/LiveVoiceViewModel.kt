@@ -119,16 +119,16 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun screenFrameCaptured() { main.post { screenFramesCaptured++ } }
 
-    /** Um quadro JPEG por segundo, só durante projeção autorizada pelo Android. */
-    fun sendScreenFrame(encodedJpeg: String) {
+    /** Um quadro JPEG por segundo; se a conexão atrasar, nunca enfileira imagens antigas. */
+    fun sendScreenFrame(encodedJpeg: String, capturedAt: Long) {
         val current = socket
         if (!ready || !screenSharing || current == null) return
         // Vídeo e microfone compartilham o WebSocket. Descarta a imagem se atrasaria o áudio.
-        if (current.queueSize() > 256_000L) {
+        if (System.currentTimeMillis() - capturedAt > 1500 || current.queueSize() > 32_000L) {
             main.post { screenFramesSkipped++ }
             if (System.currentTimeMillis() - lastBackpressure > 5000) {
                 lastBackpressure = System.currentTimeMillis()
-                diagnostics.record("Tela Live", "Quadro descartado: conexão ocupada. O microfone tem prioridade.")
+                diagnostics.record("Tela Live", "Imagem antiga descartada: conexão ocupada. O microfone tem prioridade.")
             }
             return
         }
@@ -179,7 +179,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("generationConfig", generation)
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSONE APP, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Use ações locais apenas quando Henrique pedir. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
+                            .put("text", "Você é OSONE APP, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Use ferramentas locais quando Henrique pedir para agir. Descubra os apps com busca dinâmica; para mexer na tela, primeiro use inspect_screen, depois toque, digite, role ou navegue e confira o resultado. Se o Android recusar a ação, diga a verdade. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
                     if (localToolsAvailable) setup.getJSONObject("setup")
                         .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations())))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")

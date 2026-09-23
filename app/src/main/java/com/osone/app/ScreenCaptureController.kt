@@ -21,7 +21,7 @@ import java.nio.ByteBuffer
 /** Captura transitória: um quadro JPEG por segundo, nenhum quadro salvo em disco. */
 class ScreenCaptureController(
     private val context: Context,
-    private val onFrame: (String) -> Unit,
+    private val onFrame: (String, Long) -> Unit,
     private val onCapture: () -> Unit,
     private val onEnd: () -> Unit
 ) {
@@ -102,8 +102,8 @@ class ScreenCaptureController(
                                         stream.reset()
                                         frame.compress(Bitmap.CompressFormat.JPEG, 32, stream)
                                     }
-                                    if (stream.size() > 0)
-                                        onFrame(Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP))
+                                    if (stream.size() > 0 && System.currentTimeMillis() - now < 1500)
+                                        onFrame(Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP), now)
                                 }
                             } finally { if (frame !== cropped) frame.recycle() }
                         } finally { cropped.recycle() }

@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var permissionError by mutableStateOf(false)
     private var darkMode by mutableStateOf(false)
     private var bubblePermission by mutableStateOf(false)
+    private var accessibilityEnabled by mutableStateOf(false)
     private var overlayRequested = false
     private val diagnostics by lazy { AppDiagnostics.get(applicationContext) }
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         diagnostics.installCrashHandler()
         showLive = live.active != null
         bubblePermission = Settings.canDrawOverlays(this)
+        accessibilityEnabled = OsoneAccessibilityService.active != null
         volumeControlStream = if (showLive) AudioManager.STREAM_VOICE_CALL else AudioManager.STREAM_MUSIC
         darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
@@ -91,7 +93,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 primary = Color(0xFFC4AAFF), background = Color(0xFF101018), surface = Color(0xFF101018))
                 else lightColorScheme(primary = purple)) {
                 Surface(Modifier.fillMaxSize()) {
-                    if (showLive) LiveScreen(live, diagnostics, bubblePermission,
+                    if (showLive) LiveScreen(live, diagnostics, bubblePermission, accessibilityEnabled,
+                        onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         onOverlay = {
                             if (Settings.canDrawOverlays(this)) LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
                             else {
@@ -135,6 +138,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onResume() {
         super.onResume()
         bubblePermission = Settings.canDrawOverlays(this)
+        accessibilityEnabled = OsoneAccessibilityService.active != null
         if (overlayRequested && bubblePermission && live.active != null)
             LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
         overlayRequested = false
@@ -406,6 +410,7 @@ private fun LiveModelPicker(live: LiveVoiceViewModel) {
 
 @Composable
 private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bubblePermission: Boolean,
+    accessibilityEnabled: Boolean, onAccessibility: () -> Unit,
     onOverlay: () -> Unit, onShareScreen: () -> Unit, onStopScreen: () -> Unit,
     onEnd: () -> Unit, onDiagnostics: () -> Unit, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -456,9 +461,12 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
-        Text(if (live.localToolsAvailable) "Agente Android: peça para abrir um app ou consultar bateria e hora."
+        Text(if (live.localToolsAvailable) "Agente Android: abre apps e consulta bateria. Com Acessibilidade, lê e usa controles dos apps."
             else "Este modelo aceitou somente voz; ações locais indisponíveis nesta sessão.",
             style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onAccessibility) {
+            Text(if (accessibilityEnabled) "Acessibilidade ativada · gerenciar" else "Ativar controle do celular · Acessibilidade")
+        }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onOverlay, enabled = live.active != null) {
             Text(if (bubblePermission) "Mostrar bolha sobre outros apps" else "Permitir bolha flutuante")
