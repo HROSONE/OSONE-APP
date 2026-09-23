@@ -357,7 +357,7 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
         }
         Text("Configurações", style = MaterialTheme.typography.headlineMedium)
         Text("Atualizações", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(value = updater.feedUrl, onValueChange = updater::setFeedUrl,
+        OutlinedTextField(value = updater.feedUrl, onValueChange = updater::updateFeedUrl,
             modifier = Modifier.fillMaxWidth(), singleLine = true,
             label = { Text("Canal HTTPS de atualizações (latest.json)") })
         Button(onClick = { scope.launch { updater.check() } }, enabled = !updater.busy) {

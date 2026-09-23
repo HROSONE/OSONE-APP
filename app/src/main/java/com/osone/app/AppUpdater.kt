@@ -37,7 +37,7 @@ class AppUpdater(private val activity: Activity) {
     private var prepared: File? = null
     private var waitingForPermission = false
 
-    fun setFeedUrl(value: String) {
+    fun updateFeedUrl(value: String) {
         feedUrl = value.take(2048)
         preferences.edit().putString("feed_url", feedUrl).apply()
         available = null
