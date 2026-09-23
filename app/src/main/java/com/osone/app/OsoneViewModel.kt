@@ -263,9 +263,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 onAnswer(response)
             } catch (exception: Exception) {
                 streamingText = ""
-                diagnostics.record(if (selectedFile != null) "Arquivo Gemini" else "Chat ${selectedProvider.label}", when (exception) {
-                    is ChatProviderHttpException -> "HTTP ${exception.status} durante resposta. Modelo: ${if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel}."
-                    is GeminiHttpException -> "HTTP ${exception.status} durante resposta Gemini."
+                diagnostics.record(if (selectedFile != null) "Arquivo Gemini" else "Chat ${selectedProvider.label}", when {
+                    exception is ChatProviderHttpException -> "HTTP ${exception.status} durante resposta. Modelo: ${if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel}."
+                    exception is GeminiHttpException -> "HTTP ${exception.status} durante resposta Gemini."
                     exception is IllegalArgumentException && selectedFile != null ->
                         "${exception.javaClass.simpleName}: ${exception.message?.take(130) ?: "arquivo inválido"}"
                     else -> "${exception.javaClass.simpleName}: falha ao obter resposta."

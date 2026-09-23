@@ -51,6 +51,10 @@ class LiveSessionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action != START && intent?.action != STOP && !foreground) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         try {
             when (intent?.action) {
                 START -> {
