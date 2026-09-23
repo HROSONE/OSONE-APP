@@ -16,6 +16,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     private val routerSecrets = SecureKeyStore(application, "key_openrouter")
     private val groqSecrets = SecureKeyStore(application, "key_groq")
     private val history = ConversationStore(application)
+    private val diagnostics = AppDiagnostics.get(application)
     private val settings = application.getSharedPreferences("osone_config", 0)
     private val main = Handler(Looper.getMainLooper())
     var messages by androidx.compose.runtime.mutableStateOf(history.read())
@@ -28,7 +29,13 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var provider by androidx.compose.runtime.mutableStateOf(ChatProvider.fromValue(settings.getString("chat_provider", null)))
         private set
-    var groqModel by androidx.compose.runtime.mutableStateOf(GroqModel.fromId(settings.getString("groq_model", null)))
+    var groqModelId by androidx.compose.runtime.mutableStateOf(settings.getString("groq_model", null) ?: GroqModel.GPT_OSS_20B.id)
+        private set
+    var availableGroqModels by androidx.compose.runtime.mutableStateOf<List<String>>(emptyList())
+        private set
+    var groqModelStatus by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+    var groqLoading by androidx.compose.runtime.mutableStateOf(false)
         private set
     var openRouterModel by androidx.compose.runtime.mutableStateOf(settings.getString("openrouter_model", "openrouter/free") ?: "openrouter/free")
         private set
@@ -50,7 +57,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         private set
     val selectedChatLabel get() = when (provider) {
         ChatProvider.GEMINI -> "Gemini · ${selectedModel.label}"
-        ChatProvider.GROQ -> "Groq · ${groqModel.label}"
+        ChatProvider.GROQ -> "Groq · ${GroqModel.label(groqModelId)}"
         ChatProvider.OPENROUTER -> "OpenRouter · $openRouterModel"
     }
 
@@ -66,9 +73,26 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         settings.edit().putString("chat_provider", value.value).apply()
     }
 
-    fun selectGroqModel(value: GroqModel) {
-        groqModel = value
-        settings.edit().putString("groq_model", value.id).apply()
+    fun selectGroqModel(id: String) {
+        groqModelId = id
+        settings.edit().putString("groq_model", id).apply()
+    }
+
+    fun refreshGroqModels() {
+        val key = groqSecrets.read()
+        if (key == null) { groqModelStatus = "Salve uma chave Groq para consultar seus modelos."; return }
+        groqLoading = true
+        viewModelScope.launch {
+            try {
+                val models = withContext(Dispatchers.IO) { GroqCatalog().available(key) }
+                availableGroqModels = models
+                groqModelStatus = if (models.isEmpty()) "A conta não retornou modelos de chat."
+                    else "${models.size} modelos encontrados para esta chave."
+            } catch (failure: Exception) {
+                diagnostics.record("Catálogo Groq", "Falhou a consulta de modelos (${failure.javaClass.simpleName}${if (failure is ChatProviderHttpException) " HTTP ${failure.status}" else ""}).")
+                groqModelStatus = "Não foi possível consultar os modelos; veja o diagnóstico."
+            } finally { groqLoading = false }
+        }
     }
 
     fun updateOpenRouterModel(value: String) {
@@ -102,6 +126,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         }
         return try {
             if (!target.save(apiKey) || target.read() != apiKey) {
+                diagnostics.record("Chaves", "Falha ao confirmar a gravação da chave ${forProvider.label}.")
                 keyStatus = "Não foi possível confirmar a gravação. Sua chave permanece no campo para tentar novamente."
                 keySaveError = true
                 false
@@ -109,9 +134,11 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 keyStatus = "Chave ${forProvider.label} salva e conferida neste aparelho. O campo fica vazio porque ela é mantida oculta."
                 keySaveError = false
                 error = null
+                if (forProvider == ChatProvider.GROQ) refreshGroqModels()
                 true
             }
         } catch (_: Exception) {
+            diagnostics.record("Chaves", "Falha ao salvar a chave ${forProvider.label}.")
             keyStatus = "Falha ao salvar com segurança. Sua chave permanece no campo para tentar novamente."
             keySaveError = true
             false
@@ -136,7 +163,11 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         if (text.isEmpty() || busy) return false
         val selectedProvider = provider
         val key = storeFor(selectedProvider).read()
-        if (key == null) { error = "Salve sua chave ${selectedProvider.label} em Ajustes."; return false }
+        if (key == null) {
+            error = "Salve sua chave ${selectedProvider.label} em Ajustes."
+            diagnostics.record("Chat", "Chave ${selectedProvider.label} não configurada.")
+            return false
+        }
         messages = messages + ChatMessage("user", text)
         busy = true
         error = null
@@ -146,7 +177,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot = messages
         viewModelScope.launch {
             try {
-                val response: String
+                var response: String
                 if (selectedProvider == ChatProvider.GEMINI) {
                     val choices = ChatModel.candidates(selectedModel, fallback)
                     var answer: String? = null
@@ -168,12 +199,30 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     response = answer ?: throw IllegalStateException("Nenhum modelo respondeu.")
                 } else {
-                    val modelId = if (selectedProvider == ChatProvider.GROQ) groqModel.id else openRouterModel
-                    val currentLabel = "${selectedProvider.label} · $modelId"
-                    activeTextModel = currentLabel
-                    response = withContext(Dispatchers.IO) {
-                        ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot) { partial ->
-                            main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
+                    var modelId = if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel
+                    var retried = false
+                    while (true) {
+                        val currentLabel = "${selectedProvider.label} · $modelId"
+                        activeTextModel = currentLabel
+                        try {
+                            response = withContext(Dispatchers.IO) {
+                                ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot) { partial ->
+                                    main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
+                                }
+                            }
+                            break
+                        } catch (failure: ChatProviderHttpException) {
+                            if (selectedProvider != ChatProvider.GROQ || failure.status != 404 || retried) throw failure
+                            diagnostics.record("Chat Groq", "HTTP 404 no modelo $modelId. Consultando modelos disponíveis.")
+                            val models = withContext(Dispatchers.IO) { GroqCatalog().available(key) }
+                            availableGroqModels = models
+                            val alternate = models.firstOrNull { it != modelId }
+                                ?: throw IllegalStateException("Groq HTTP 404: nenhum modelo alternativo disponível nesta chave.")
+                            retried = true
+                            modelId = alternate
+                            streamingText = ""
+                            groqModelStatus = "Modelo anterior indisponível; usando ${GroqModel.label(alternate)}."
+                            selectGroqModel(alternate)
                         }
                     }
                     lastAnswerModel = null
@@ -184,11 +233,18 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 onAnswer(response)
             } catch (exception: Exception) {
                 streamingText = ""
+                diagnostics.record("Chat ${selectedProvider.label}", when (exception) {
+                    is ChatProviderHttpException -> "HTTP ${exception.status} durante resposta. Modelo: ${if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel}."
+                    is GeminiHttpException -> "HTTP ${exception.status} durante resposta Gemini."
+                    else -> "${exception.javaClass.simpleName}: falha ao obter resposta."
+                })
                 error = when {
                     exception is GeminiHttpException && exception.status in listOf(401, 403) ->
                         "Chave Gemini sem acesso à API. Confira em Ajustes."
                     exception is ChatProviderHttpException && exception.status in listOf(401, 403) ->
                         "Chave ${exception.provider.label} recusada. Confira em Ajustes."
+                    exception is ChatProviderHttpException && exception.status == 404 ->
+                        "Groq HTTP 404: modelo ou recurso indisponível. Consulte os modelos em Ajustes."
                     else -> exception.message ?: "Não consegui responder agora."
                 }
                 // Mantém o texto do usuário para reenvio ou cópia após falha.

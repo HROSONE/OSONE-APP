@@ -24,6 +24,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.text.SimpleDateFormat
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val viewModel: OsoneViewModel by viewModels()
@@ -41,8 +44,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var showLive by mutableStateOf(false)
     private var permissionError by mutableStateOf(false)
     private var darkMode by mutableStateOf(false)
+    private val diagnostics by lazy { AppDiagnostics.get(applicationContext) }
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) openLive() else permissionError = true
+        if (granted) openLive() else { permissionError = true; diagnostics.record("Permissão", "Acesso ao microfone negado.") }
     }
 
     private fun openLive() {
@@ -53,31 +57,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        diagnostics.installCrashHandler()
         volumeControlStream = AudioManager.STREAM_MUSIC
         darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
         setContent {
             var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
+            var showDiagnostics by remember { mutableStateOf(false) }
             val purple = Color(0xFF7044D7)
             MaterialTheme(colorScheme = if (darkMode) darkColorScheme(
                 primary = Color(0xFFC4AAFF), background = Color(0xFF101018), surface = Color(0xFF101018))
                 else lightColorScheme(primary = purple)) {
                 Surface(Modifier.fillMaxSize()) {
-                    if (showLive) LiveScreen(live, onBack = { live.stop(); showLive = false })
+                    if (showLive) LiveScreen(live, diagnostics, onDiagnostics = { showDiagnostics = true }, onBack = { live.stop(); showLive = false })
                     else if (showSettings) SettingsScreen(viewModel, live, darkMode,
                         onDarkMode = { enabled ->
                             darkMode = enabled
                             getSharedPreferences("osone_config", 0).edit().putBoolean("dark_mode", enabled).apply()
-                        }, onBack = { showSettings = false })
+                        }, onBack = { showSettings = false }, diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
                     else ChatScreen(viewModel, onMic = {
                             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                                 openLive()
                             else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-                        }, permissionError = permissionError, onSettings = { showSettings = true }, readAloud = readAloud,
+                        }, permissionError = permissionError, onSettings = { showSettings = true }, diagnostics = diagnostics,
+                        onDiagnostics = { showDiagnostics = true }, readAloud = readAloud,
                         onReadAloud = { readAloud = !readAloud }, onAnswer = { answer ->
                             if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
                         })
+                    if (showDiagnostics) DiagnosticsDialog(diagnostics, onClose = { showDiagnostics = false })
                 }
             }
         }
@@ -92,7 +100,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
 @Composable
 private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionError: Boolean,
-    onSettings: () -> Unit, readAloud: Boolean, onReadAloud: () -> Unit,
+    onSettings: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
+    readAloud: Boolean, onReadAloud: () -> Unit,
     onAnswer: (String) -> Unit) {
     var draft by remember { mutableStateOf("") }
     val scroll = rememberLazyListState()
@@ -106,6 +115,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("OSONE APP", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            DiagnosticsDot(diagnostics, onDiagnostics)
             TextButton(onClick = onReadAloud) { Text(if (readAloud) "🔊 Voz ligada" else "🔇 Voz desligada") }
             TextButton(onClick = onSettings) { Text("Ajustes") }
         }
@@ -117,7 +127,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
                 val user = message.role == "user"
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
                     Surface(color = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(0.90f)) {
+                        shape = RoundedCornerShape(16.dp), modifier = if (user) Modifier.widthIn(max = 300.dp) else Modifier.fillMaxWidth(0.90f)) {
                         Column(Modifier.padding(14.dp)) {
                             Text(if (user) "Você" else "OSONE", style = MaterialTheme.typography.labelMedium)
                             Spacer(Modifier.height(4.dp))
@@ -143,9 +153,8 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
         } else if (viewModel.provider == ChatProvider.GEMINI && viewModel.lastAnswerModel != null && viewModel.lastAnswerModel != viewModel.selectedModel) {
             Text("Última resposta: ${viewModel.lastAnswerModel?.label}", style = MaterialTheme.typography.bodySmall)
         }
-        viewModel.error?.let { error ->
-            TextButton(onClick = viewModel::dismissError) { Text("$error  ✕", color = MaterialTheme.colorScheme.error) }
-        }
+        if (viewModel.error != null) Text("Falha no chat · toque no indicador vermelho para ver o erro.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         if (permissionError) Text("Permita o microfone para conversar por voz.", color = MaterialTheme.colorScheme.error)
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = draft, onValueChange = { draft = it }, label = { Text("Escreva sua mensagem") },
@@ -162,9 +171,12 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
 
 @Composable
 private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, darkMode: Boolean,
-    onDarkMode: (Boolean) -> Unit, onBack: () -> Unit) {
+    onDarkMode: (Boolean) -> Unit, onBack: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        TextButton(onClick = onBack) { Text("← Conversa") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("← Conversa") }
+            DiagnosticsDot(diagnostics, onDiagnostics)
+        }
         Text("Configurações", style = MaterialTheme.typography.headlineMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Modo noturno", modifier = Modifier.weight(1f))
@@ -197,7 +209,7 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
         Text("Voz em tempo real", style = MaterialTheme.typography.titleMedium)
         LiveModelPicker(live)
         LiveVoicePicker(live)
-        Text("Trocar de voz reinicia a chamada. O volume da voz fica no orbe Live.", style = MaterialTheme.typography.bodySmall)
+        Text("Trocar de voz reinicia a chamada. Ajuste o volume pelos botões do celular.", style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
             Switch(checked = live.fallback, onCheckedChange = live::updateFallback)
@@ -251,15 +263,19 @@ private fun ChatProviderPicker(viewModel: OsoneViewModel) {
 private fun GroqModelPicker(viewModel: OsoneViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }) { Text("Modelo: ${viewModel.groqModel.label}  ▾") }
+        OutlinedButton(onClick = { expanded = true }) { Text("Modelo: ${GroqModel.label(viewModel.groqModelId)}  ▾") }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            GroqModel.entries.forEach { value ->
-                DropdownMenuItem(text = { Text(value.label) }, onClick = {
-                    viewModel.selectGroqModel(value); expanded = false
+            (viewModel.availableGroqModels.ifEmpty { GroqModel.entries.map { it.id } }).forEach { id ->
+                DropdownMenuItem(text = { Text(GroqModel.label(id)) }, onClick = {
+                    viewModel.selectGroqModel(id); expanded = false
                 })
             }
         }
     }
+    TextButton(onClick = viewModel::refreshGroqModels, enabled = !viewModel.groqLoading) {
+        Text(if (viewModel.groqLoading) "Consultando modelos…" else "Consultar modelos disponíveis nesta chave")
+    }
+    viewModel.groqModelStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable
@@ -334,7 +350,7 @@ private fun LiveModelPicker(live: LiveVoiceViewModel) {
 }
 
 @Composable
-private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
+private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         .verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -342,6 +358,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
             TextButton(onClick = onBack) { Text("← Chat") }
             Spacer(Modifier.weight(1f))
             Text("OSONE LIVE", style = MaterialTheme.typography.titleLarge)
+            DiagnosticsDot(diagnostics, onDiagnostics)
         }
         Spacer(Modifier.height(12.dp))
         LiveModelPicker(live)
@@ -358,18 +375,12 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
             VoiceOrb(live.inputLevel, live.outputLevel, live.connected)
         }
         Text(live.status, style = MaterialTheme.typography.titleMedium)
-        if (!live.connected && live.attempts.isNotEmpty()) {
-            Text("Diagnóstico: ${live.attempts.last()}", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error)
-        }
+        if (!live.connected && live.attempts.isNotEmpty()) Text("Falha na conexão · veja o indicador vermelho.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         if (live.active != null && live.selected != live.active)
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(12.dp))
-        Text("Volume da voz: ${(live.gain * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
-        Slider(value = live.gain, onValueChange = live::updateGain, valueRange = 0.5f..2f, steps = 14)
-        Text("Os botões de volume do celular controlam a mídia.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = live::toggleMute, enabled = live.connected) {
@@ -381,6 +392,39 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(18.dp))
     }
+}
+
+@Composable
+private fun DiagnosticsDot(diagnostics: AppDiagnostics, onOpen: () -> Unit) {
+    IconButton(onClick = onOpen, modifier = Modifier.semantics {
+        contentDescription = if (diagnostics.unread > 0) "Erros novos: ${diagnostics.unread}. Abrir diagnóstico"
+            else "Estado do aplicativo: sem erros novos. Abrir diagnóstico"
+    }) {
+        Canvas(Modifier.size(13.dp)) {
+            drawCircle(if (diagnostics.unread > 0) Color(0xFFE15555) else Color(0xFF44BD77))
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsDialog(diagnostics: AppDiagnostics, onClose: () -> Unit) {
+    LaunchedEffect(Unit) { diagnostics.markRead() }
+    AlertDialog(onDismissRequest = onClose, title = { Text("Diagnóstico") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (diagnostics.events.isEmpty()) Text("Nenhuma falha registrada neste aparelho.")
+                diagnostics.events.asReversed().forEach { event ->
+                    Column {
+                        Text("${SimpleDateFormat("dd/MM HH:mm:ss", Locale("pt", "BR")).format(event.timestamp)} · ${event.area}",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text(event.detail, style = MaterialTheme.typography.bodySmall)
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }, confirmButton = { TextButton(onClick = onClose) { Text("Fechar") } },
+        dismissButton = { TextButton(onClick = diagnostics::clear) { Text("Limpar log") } })
 }
 
 @Composable

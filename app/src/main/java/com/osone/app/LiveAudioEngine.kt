@@ -5,10 +5,13 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.os.Build
 import android.os.Process
 import android.util.Base64
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.sqrt
 
 /** PCM16 mono: 16 kHz de entrada e 24 kHz de saída, sem reconhecimento de fala ou TTS. */
@@ -16,15 +19,23 @@ class LiveAudioEngine(
     private val send: (String) -> Unit,
     private val inputLevel: (Float) -> Unit,
     private val outputLevel: (Float) -> Unit,
-    private val onError: () -> Unit
+    private val onError: () -> Unit,
+    private val onDiagnostic: (String) -> Unit
 ) {
-    private val queue = ArrayBlockingQueue<ByteArray>(12)
+    private data class AudioChunk(val generation: Int, val bytes: ByteArray)
+    private val queue = ArrayBlockingQueue<AudioChunk>(96)
+    private val queuedBytes = AtomicInteger(0)
+    private val generation = AtomicInteger(0)
     private val outputLock = Any()
     @Volatile private var running = false
+    @Volatile private var turnEnded = false
     @Volatile var muted = false
     @Volatile var outputGain = 1.4f
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
+    private var leftoverByte: Byte? = null
+    private var lastOverflowWarning = 0L
 
     fun start() {
         val inputBuffer = maxOf(4096, AudioRecord.getMinBufferSize(16000,
@@ -34,6 +45,10 @@ class LiveAudioEngine(
         val input = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, inputBuffer)
         if (input.state != AudioRecord.STATE_INITIALIZED) { input.release(); throw IllegalStateException("Microfone indisponível") }
+        echoCanceler = try {
+            if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(input.audioSessionId)?.also { it.enabled = true }
+            else null
+        } catch (_: Exception) { null }
         val output = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -41,9 +56,12 @@ class LiveAudioEngine(
                 .setSampleRate(24000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
             .setBufferSizeInBytes(outputBuffer).setTransferMode(AudioTrack.MODE_STREAM).build()
         if (output.state != AudioTrack.STATE_INITIALIZED) {
+            echoCanceler?.release(); echoCanceler = null
             input.release(); output.release(); throw IllegalStateException("Áudio indisponível")
         }
-        try { input.startRecording(); output.play() } catch (error: Exception) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) output.setStartThresholdInFrames(2400)
+        try { input.startRecording() } catch (error: Exception) {
+            echoCanceler?.release(); echoCanceler = null
             input.release(); output.release(); throw error
         }
         recorder = input; player = output; running = true
@@ -61,16 +79,47 @@ class LiveAudioEngine(
         }, "osone-microphone").start()
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+            var buffering = true
+            var targetBytes = 8640 // 180 ms de PCM mono a 24 kHz; cresce se houver falta de dados.
+            var lastUnderruns = output.underrunCount
+            var lastWarning = 0L
             while (running) {
-                val chunk = try { queue.poll(100, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break }
-                if (chunk == null) { outputLevel(0f); continue }
-                val playback = amplify(chunk, outputGain)
-                var offset = 0
-                while (running && offset < playback.size) {
-                    val count = synchronized(outputLock) {
-                        if (running) output.write(playback, offset, minOf(2048, playback.size - offset)) else -1
+                if (buffering && queuedBytes.get() < targetBytes && !(turnEnded && queuedBytes.get() > 0)) {
+                    try { Thread.sleep(10) } catch (_: InterruptedException) { break }
+                    continue
+                }
+                if (buffering) {
+                    try { if (output.playState != AudioTrack.PLAYSTATE_PLAYING) output.play() }
+                    catch (_: Exception) { if (running) onError(); break }
+                    buffering = false
+                    lastUnderruns = output.underrunCount
+                }
+                val next = try { queue.poll(25, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break }
+                if (next == null) {
+                    if (turnEnded) { turnEnded = false; buffering = true }
+                    else if (output.underrunCount > lastUnderruns) {
+                        lastUnderruns = output.underrunCount
+                        targetBytes = minOf(targetBytes + 2880, 24000) // Máximo de 500 ms.
+                        buffering = true
+                        val now = System.currentTimeMillis()
+                        if (now - lastWarning > 3000) {
+                            lastWarning = now
+                            onDiagnostic("Faltou áudio para reprodução; buffer ampliado para ${targetBytes / 48} ms.")
+                        }
                     }
-                    if (count <= 0) break
+                    outputLevel(0f)
+                    continue
+                }
+                queuedBytes.updateAndGet { maxOf(0, it - next.bytes.size) }
+                if (next.generation != generation.get()) continue
+                val playback = amplify(next.bytes, outputGain)
+                var offset = 0
+                while (running && next.generation == generation.get() && offset < playback.size) {
+                    val count = try { synchronized(outputLock) {
+                        if (running && next.generation == generation.get())
+                            output.write(playback, offset, minOf(2048, playback.size - offset)) else -1
+                    } } catch (_: Exception) { -1 }
+                    if (count <= 0) { if (running && next.generation == generation.get()) onDiagnostic("Falha ao escrever no alto-falante."); break }
                     offset += count
                     outputLevel(amplitude(playback, count, offset - count))
                 }
@@ -78,15 +127,35 @@ class LiveAudioEngine(
         }, "osone-speaker").start()
     }
 
-    fun receive(encoded: String) {
+    @Synchronized fun receive(encoded: String) {
         if (!running) return
-        val bytes = try { Base64.decode(encoded, Base64.DEFAULT) } catch (_: IllegalArgumentException) { return }
+        val decoded = try { Base64.decode(encoded, Base64.DEFAULT) } catch (_: IllegalArgumentException) {
+            onDiagnostic("Bloco de áudio inválido recebido do serviço."); return
+        }
+        if (decoded.isEmpty()) return
+        val data = if (leftoverByte != null) byteArrayOf(leftoverByte!!) + decoded else decoded
+        leftoverByte = if (data.size % 2 != 0) data.last() else null
+        val bytes = if (leftoverByte != null) data.copyOf(data.size - 1) else data
         if (bytes.isEmpty()) return
-        if (!queue.offer(bytes)) { queue.poll(); queue.offer(bytes) }
+        queuedBytes.addAndGet(bytes.size)
+        if (!queue.offer(AudioChunk(generation.get(), bytes))) {
+            queuedBytes.addAndGet(-bytes.size)
+            val now = System.currentTimeMillis()
+            if (now - lastOverflowWarning > 3000) {
+                lastOverflowWarning = now
+                onDiagnostic("Fila de reprodução cheia; áudio do serviço chegou mais rápido que o aparelho reproduziu.")
+            }
+        }
     }
 
-    fun interrupt() {
+    fun finishTurn() { turnEnded = true }
+
+    @Synchronized fun interrupt() {
+        generation.incrementAndGet()
         queue.clear()
+        queuedBytes.set(0)
+        leftoverByte = null
+        turnEnded = false
         synchronized(outputLock) {
             player?.let { if (running) { it.pause(); it.flush(); it.play() } }
         }
@@ -95,9 +164,12 @@ class LiveAudioEngine(
 
     fun stop() {
         running = false
+        generation.incrementAndGet()
         queue.clear()
+        queuedBytes.set(0)
         try { recorder?.stop() } catch (_: Exception) {}
         recorder?.release(); recorder = null
+        echoCanceler?.release(); echoCanceler = null
         synchronized(outputLock) {
             try { player?.pause(); player?.flush(); player?.stop() } catch (_: Exception) {}
             player?.release(); player = null

@@ -17,11 +17,13 @@ import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** Controla uma única chamada Live; nunca grava áudio ou transcrições em disco. */
 class LiveVoiceViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("osone_config", 0)
     private val secrets = SecureKeyStore(application)
+    private val diagnostics = AppDiagnostics.get(application)
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -29,8 +31,6 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     var selected by mutableStateOf(LiveModel.fromId(preferences.getString("live_model", null)))
         private set
     var voice by mutableStateOf(LiveVoices.fromName(preferences.getString("live_voice", null)))
-        private set
-    var gain by mutableStateOf(preferences.getFloat("live_gain", 1.4f).coerceIn(0.5f, 2f))
         private set
     var fallback by mutableStateOf(preferences.getBoolean("live_fallback", true))
         private set
@@ -54,9 +54,14 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private var key: String? = null
     @Volatile private var socket: WebSocket? = null
     @Volatile private var ready = false
-    private var audio: LiveAudioEngine? = null
+    @Volatile private var audio: LiveAudioEngine? = null
+    private val lastInputUi = AtomicLong(0L)
+    private val lastOutputUi = AtomicLong(0L)
+    private var interruptedAt = 0L
+    private var interruptions = 0
+    private var lastBackpressure = 0L
     private var reconnectOnce = false
-    private var running = false
+    @Volatile private var running = false
 
     fun select(model: LiveModel) {
         selected = model
@@ -72,12 +77,6 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         voice = LiveVoices.fromName(name)
         preferences.edit().putString("live_voice", voice).apply()
         if (running) start() // A voz pertence à configuração inicial de cada sessão.
-    }
-
-    fun updateGain(value: Float) {
-        gain = value.coerceIn(0.5f, 2f)
-        preferences.edit().putFloat("live_gain", gain).apply()
-        audio?.outputGain = gain
     }
 
     fun start() {
@@ -160,7 +159,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         else -> "falha de rede (${t.javaClass.simpleName.take(40)})"
                     }
                     fail(webSocket, cause, code == 401 || code == 403,
-                        code == null || code == 401 || code == 403)
+                        code == 401 || code == 403)
                 }
             }
 
@@ -187,15 +186,36 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun dispatchMessage(webSocket: WebSocket, data: String) {
-        main.post {
-            if (!running || socket !== webSocket) return@post
-            try { handleMessage(webSocket, JSONObject(data)) } catch (_: Exception) {
-                fail(webSocket, "resposta Live inválida", terminal = true)
+        if (!running || socket !== webSocket) return
+        val message = try { JSONObject(data) } catch (_: Exception) {
+            main.post { fail(webSocket, "resposta Live inválida", terminal = true) }
+            return
+        }
+        val content = message.optJSONObject("serverContent")
+        if (content?.optBoolean("interrupted") == true) {
+            audio?.interrupt()
+            main.post {
+                val now = System.currentTimeMillis()
+                interruptions = if (now - interruptedAt < 10_000) interruptions + 1 else 1
+                interruptedAt = now
+                if (interruptions == 3) diagnostics.record("Live", "Três interrupções de voz em 10 s. Possível eco do alto-falante ou fala detectada durante a resposta.")
             }
+        }
+        val parts = content?.optJSONObject("modelTurn")?.optJSONArray("parts")
+        if (parts != null) for (i in 0 until parts.length()) {
+            val inline = parts.optJSONObject(i)?.optJSONObject("inlineData") ?: continue
+            if (inline.optString("mimeType").startsWith("audio/pcm")) {
+                val encoded = inline.optString("data")
+                if (encoded.isNotBlank()) audio?.receive(encoded)
+            }
+        }
+        if (content?.optBoolean("turnComplete") == true) audio?.finishTurn()
+        if (message.has("setupComplete") || message.has("goAway") || message.has("error")) {
+            main.post { if (running && socket === webSocket) handleControl(webSocket, message) }
         }
     }
 
-    private fun handleMessage(ws: WebSocket, message: JSONObject) {
+    private fun handleControl(ws: WebSocket, message: JSONObject) {
         if (message.has("setupComplete")) {
             ready = true
             connected = true
@@ -208,33 +228,46 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             if (ready && current != null && current.queueSize() < 512_000L) {
                                 current.send(JSONObject().put("realtimeInput", JSONObject().put("audio", JSONObject()
                                     .put("data", data).put("mimeType", "audio/pcm;rate=16000"))).toString())
+                            } else if (ready && System.currentTimeMillis() - lastBackpressure > 5000) {
+                                lastBackpressure = System.currentTimeMillis()
+                                diagnostics.record("Live", "Envio do microfone atrasou: fila WebSocket cheia.")
                             }
                         },
-                        inputLevel = { value -> main.post { if (running) inputLevel = value } },
-                        outputLevel = { value -> main.post { if (running) outputLevel = value } },
-                        onError = { main.post { if (running) { stop(); status = "Microfone indisponível. Tente novamente." } } }
-                    ).also { it.muted = muted; it.outputGain = gain; it.start() }
-                } catch (_: Exception) { stop(); status = "Não foi possível iniciar o microfone ou o alto-falante." }
+                        inputLevel = { value ->
+                            val now = System.currentTimeMillis()
+                            if (now - lastInputUi.get() >= 80) {
+                                lastInputUi.set(now)
+                                main.post { if (running) inputLevel = value }
+                            }
+                        },
+                        outputLevel = { value ->
+                            val now = System.currentTimeMillis()
+                            if (now - lastOutputUi.get() >= 70) {
+                                lastOutputUi.set(now)
+                                main.post { if (running) outputLevel = value }
+                            }
+                        },
+                        onError = { main.post { if (running) {
+                            diagnostics.record("Áudio Live", "Microfone ou alto-falante parou durante a chamada.")
+                            stop(); status = "Áudio indisponível. Veja o diagnóstico."
+                        } } },
+                        onDiagnostic = { detail -> diagnostics.record("Áudio Live", detail) }
+                    ).also { it.muted = muted; it.start() }
+                } catch (failure: Exception) {
+                    diagnostics.record("Áudio Live", "Não iniciou microfone/alto-falante (${failure.javaClass.simpleName}).")
+                    stop(); status = "Não foi possível iniciar o áudio."
+                }
             }
         }
         if (message.has("goAway")) { fail(ws, "servidor pediu reconexão"); return }
         if (message.has("error")) { fail(ws, "erro comunicado pelo serviço"); return }
-        val content = message.optJSONObject("serverContent") ?: return
-        if (content.optBoolean("interrupted")) audio?.interrupt()
-        val parts = content.optJSONObject("modelTurn")?.optJSONArray("parts") ?: return
-        for (i in 0 until parts.length()) {
-            val inline = parts.optJSONObject(i)?.optJSONObject("inlineData") ?: continue
-            if (inline.optString("mimeType").startsWith("audio/pcm")) {
-                val data = inline.optString("data")
-                if (data.isNotBlank()) audio?.receive(data)
-            }
-        }
     }
 
     private fun fail(ws: WebSocket, cause: String, unauthorized: Boolean = false, terminal: Boolean = false) {
         if (!running || socket !== ws) return
         val wasReady = ready
         attempts = attempts + "${active?.label.orEmpty()}: $cause"
+        diagnostics.record("Conexão Live", "${active?.label.orEmpty()}: $cause")
         ready = false
         connected = false
         socket = null

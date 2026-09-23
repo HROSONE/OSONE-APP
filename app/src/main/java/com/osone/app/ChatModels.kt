@@ -32,9 +32,12 @@ enum class ChatProvider(val value: String, val label: String) {
 }
 
 enum class GroqModel(val id: String, val label: String) {
+    GPT_OSS_20B("openai/gpt-oss-20b", "GPT OSS 20B · rápido"),
     LLAMA_70B("llama-3.3-70b-versatile", "Llama 3.3 70B"),
-    LLAMA_8B("llama-3.1-8b-instant", "Llama 3.1 8B (rápido)");
+    LLAMA_8B("llama-3.1-8b-instant", "Llama 3.1 8B"),
+    GPT_OSS_120B("openai/gpt-oss-120b", "GPT OSS 120B");
     companion object {
-        fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: LLAMA_70B
+        fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: GPT_OSS_20B
+        fun label(id: String) = entries.firstOrNull { it.id == id }?.label ?: id
     }
 }
