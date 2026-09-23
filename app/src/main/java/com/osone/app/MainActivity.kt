@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.util.Locale
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
@@ -141,6 +142,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
                         }, permissionError = permissionError, onSettings = { showSettings = true },
                         onWriting = { showWriting = true }, diagnostics = diagnostics, liveActive = live.active != null,
+                        onOpenCode = { code, language ->
+                            writing.publish(JSONObject().put("titulo", "Código do chat")
+                                .put("conteudo", code).put("formato", language))
+                            showWriting = true
+                        },
                         onDiagnostics = { showDiagnostics = true }, readAloud = readAloud,
                         onReadAloud = { readAloud = !readAloud }, onAnswer = { answer ->
                             if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")

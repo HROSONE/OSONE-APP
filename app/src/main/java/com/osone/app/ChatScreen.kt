@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Unit, permissionError: Boolean,
     onSettings: () -> Unit, onWriting: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
-    readAloud: Boolean, onReadAloud: () -> Unit, liveActive: Boolean,
+    readAloud: Boolean, onReadAloud: () -> Unit, liveActive: Boolean, onOpenCode: (String, String) -> Unit,
     onAnswer: (String) -> Unit) {
     var draft by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -64,8 +64,8 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
             else LazyColumn(state = scroll, modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(viewModel.messages) { message -> MessageBubble(message.text, message.role == "user") }
-                if (viewModel.streamingText.isNotBlank()) item { MessageBubble(viewModel.streamingText, false) }
+                items(viewModel.messages) { message -> MessageBubble(message.text, message.role == "user", onOpenCode) }
+                if (viewModel.streamingText.isNotBlank()) item { MessageBubble(viewModel.streamingText, false, null) }
             }
         }
         Column(Modifier.padding(horizontal = 16.dp)) {
@@ -116,7 +116,7 @@ private fun EmptyChat(onMic: () -> Unit) {
 }
 
 @Composable
-private fun MessageBubble(text: String, user: Boolean) {
+private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, String) -> Unit)?) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
         if (!user) {
@@ -127,8 +127,21 @@ private fun MessageBubble(text: String, user: Boolean) {
             contentColor = if (user) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             shape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp),
             modifier = Modifier.widthIn(max = 320.dp)) {
-            Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodyLarge)
+            Column {
+                Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyLarge)
+                val code = if (user || onOpenCode == null) null else remember(text) { DocumentPreview.codeBlock(text) }
+                if (code != null && onOpenCode != null) {
+                    val markup = DocumentPreview.detectFormat(code.first, code.second) == "html"
+                    TextButton(onClick = { onOpenCode(code.second, code.first) },
+                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)) {
+                        Icon(if (markup) OstieIcons.Play else OstieIcons.Document, contentDescription = null,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (markup) "Visualizar na Aba de Escrita" else "Abrir na Aba de Escrita")
+                    }
+                }
+            }
         }
     }
 }

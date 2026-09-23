@@ -22,6 +22,13 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
     var confirmDelete by remember { mutableStateOf(false) }
     val hasContent = workspace.content.isNotBlank()
     val html = workspace.format == "html"
+    // Documento HTML/SVG recém-enviado pelo OSTIE abre direto no preview.
+    LaunchedEffect(workspace.revision) {
+        if (workspace.previewPending && workspace.content.isNotBlank()) {
+            preview = DocumentPreview.page(workspace.content)
+            workspace.consumePreview()
+        } else if (preview != null && workspace.format != "html") preview = null
+    }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         OstieTopBar(title = "Aba de Escrita", subtitle = workspace.title,
             navigation = { BarIcon(OstieIcons.Back, "Voltar", { if (preview != null) preview = null else onBack() }) }) {
@@ -35,10 +42,11 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
                 { Icon(OstieIcons.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
             } else null
             FilterChip(selected = html, onClick = { workspace.updateFormat(if (html) "text" else "html") },
-                label = { Text("HTML") }, leadingIcon = htmlMark)
+                label = { Text("HTML / SVG") }, leadingIcon = htmlMark)
             Spacer(Modifier.weight(1f))
-            if (preview == null) BarIcon(OstieIcons.Play, "Visualizar HTML", { preview = workspace.content },
-                enabled = html && hasContent, tint = MaterialTheme.colorScheme.primary)
+            if (preview == null) BarIcon(OstieIcons.Play, "Visualizar HTML ou SVG",
+                { preview = DocumentPreview.page(workspace.content) },
+                enabled = (html || DocumentPreview.looksLikeMarkup(workspace.content)) && hasContent, tint = MaterialTheme.colorScheme.primary)
             else BarIcon(OstieIcons.Close, "Fechar visualização", { preview = null })
             BarIcon(OstieIcons.Copy, "Copiar texto", {
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
@@ -62,12 +70,20 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
                         settings.allowContentAccess = false
                         settings.domStorageEnabled = false
                         settings.javaScriptCanOpenWindowsAutomatically = false
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean = true
                         }
                         setBackgroundColor(android.graphics.Color.WHITE)
                     } }, update = { web ->
-                        web.loadDataWithBaseURL(null, current, "text/html", "UTF-8", null)
+                        // Recarrega só quando o documento muda; recomposições não reiniciam a página.
+                        if (web.tag != current) {
+                            web.tag = current
+                            web.loadDataWithBaseURL("about:blank", current, "text/html", "UTF-8", null)
+                        }
                     }, onRelease = { it.destroy() }, modifier = Modifier.fillMaxSize())
                 }
             } else {
