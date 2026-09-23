@@ -27,13 +27,13 @@ class SecureKeyStore(context: Context) {
         return generator.generateKey()
     }
 
-    fun save(value: String) {
+    fun save(value: String): Boolean {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val encrypted = cipher.doFinal(value.toByteArray(StandardCharsets.UTF_8))
-        preferences.edit()
+        return preferences.edit()
             .putString("key", Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP))
-            .apply()
+            .commit()
     }
 
     fun read(): String? {

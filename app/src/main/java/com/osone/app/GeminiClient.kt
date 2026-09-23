@@ -5,6 +5,10 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+class GeminiHttpException(val status: Int) : Exception("O serviço respondeu HTTP $status. Confira o acesso ao modelo e a cota.") {
+    val allowsFallback get() = status == 404 || status == 429 || status in 500..599
+}
+
 /** Cliente HTTPS direto: sem proxy de PC e sem segredos dentro do APK. */
 class GeminiClient {
     fun answer(key: String, model: String, history: List<ChatMessage>): String {
@@ -28,14 +32,16 @@ class GeminiClient {
             val status = connection.responseCode
             if (status !in 200..299) {
                 // Nunca devolvemos o corpo do erro: pode conter detalhes sensíveis do provedor.
-                throw IllegalStateException("O serviço respondeu HTTP $status. Confira a chave, o modelo e a cota.")
+                throw GeminiHttpException(status)
             }
             val candidate = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 .optJSONArray("candidates")?.optJSONObject(0)
             val parts = candidate?.optJSONObject("content")?.optJSONArray("parts")
             val answer = buildString {
                 if (parts != null) for (i in 0 until parts.length()) {
-                    val part = parts.optJSONObject(i)?.optString("text").orEmpty()
+                    val item = parts.optJSONObject(i) ?: continue
+                    if (item.optBoolean("thought")) continue
+                    val part = item.optString("text")
                     if (part.isNotBlank()) append(part)
                 }
             }.trim()

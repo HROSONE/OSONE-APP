@@ -11,6 +11,8 @@ import androidx.activity.viewModels
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -95,6 +97,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
             TextButton(onClick = onSettings) { Text("Ajustes") }
         }
         Text("Seu assistente no Android", color = MaterialTheme.colorScheme.secondary)
+        Text("Cérebro do chat: ${viewModel.selectedModel.label}", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         LazyColumn(state = scroll, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(viewModel.messages) { message ->
@@ -111,7 +114,12 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
                 }
             }
         }
-        if (viewModel.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (viewModel.busy) {
+            Text("Consultando ${viewModel.activeModel?.label ?: viewModel.selectedModel.label}…", style = MaterialTheme.typography.bodySmall)
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        } else if (viewModel.lastAnswerModel != null && viewModel.lastAnswerModel != viewModel.selectedModel) {
+            Text("Última resposta: ${viewModel.lastAnswerModel?.label}", style = MaterialTheme.typography.bodySmall)
+        }
         viewModel.error?.let { error ->
             TextButton(onClick = viewModel::dismissError) { Text("$error  ✕", color = MaterialTheme.colorScheme.error) }
         }
@@ -132,16 +140,24 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
 @Composable
 private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, onBack: () -> Unit) {
     var key by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf(viewModel.model) }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← Conversa") }
         Text("Configurações", style = MaterialTheme.typography.headlineMedium)
-        Text(if (viewModel.configured) "Chave Gemini salva neste aparelho" else "Adicione sua chave Gemini para conversar")
+        Text(if (viewModel.configured) "✓ Chave Gemini salva neste aparelho (oculta por segurança)" else "Nenhuma chave Gemini salva")
         OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Nova chave Gemini") },
+            placeholder = { Text(if (viewModel.configured) "Cole aqui somente para trocar a chave" else "Cole sua chave Gemini") },
             visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Modelo") },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { viewModel.saveSettings(key, model); key = "" }, modifier = Modifier.fillMaxWidth()) { Text("Salvar") }
+        Button(onClick = { if (viewModel.saveKey(key)) key = "" }, enabled = key.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()) { Text(if (viewModel.configured) "Atualizar chave" else "Salvar chave") }
+        viewModel.keyStatus?.let { Text(it, color = if (viewModel.keySaveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+        HorizontalDivider()
+        Text("Cérebro do chat escrito", style = MaterialTheme.typography.titleMedium)
+        ChatModelPicker(viewModel)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
+            Switch(checked = viewModel.fallback, onCheckedChange = viewModel::updateFallback)
+        }
+        Text("Ordem: modelo escolhido → versões Flash anteriores. Só troca se o modelo estiver indisponível ou sem cota; um erro de chave interrompe a tentativa.", style = MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Text("Voz em tempo real", style = MaterialTheme.typography.titleMedium)
         LiveModelPicker(live)
@@ -158,7 +174,22 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
             confirmButton = { TextButton(onClick = { viewModel.clearConversation(); confirmClear = false }) { Text("Apagar") } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancelar") } })
         viewModel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("O modo Live transmite áudio diretamente ao Gemini, sem transcrição, e reproduz a voz do modelo. O chat escrito permanece separado. A voz opcional do chat usa o sintetizador do Android. Internet e cota Gemini são necessárias.", style = MaterialTheme.typography.bodySmall)
+        Text("A chave salva é compartilhada entre o chat escrito e o Live neste aparelho. A lista de modelos do cérebro controla o chat; a lista Live controla a conversa por voz. Internet e cota Gemini são necessárias.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ChatModelPicker(viewModel: OsoneViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("Modelo: ${viewModel.selectedModel.label}  ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ChatModel.entries.forEach { model ->
+                DropdownMenuItem(text = { Text(model.label) }, onClick = {
+                    viewModel.selectModel(model); expanded = false
+                })
+            }
+        }
     }
 }
 
