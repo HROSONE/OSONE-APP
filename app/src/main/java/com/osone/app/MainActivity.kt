@@ -453,7 +453,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Interromper a voz quando eu falar")
             Spacer(Modifier.width(12.dp))
-            Switch(checked = live.allowInterruptions, onCheckedChange = live::setAllowInterruptions)
+            Switch(checked = live.allowInterruptions, onCheckedChange = live::updateAllowInterruptions)
         }
         Text(if (live.allowInterruptions) "Você pode interromper o OSONE; o eco do alto-falante também pode cortar respostas."
             else "Para evitar cortes por eco, o microfone espera o OSONE terminar de falar.",

@@ -116,7 +116,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (muted) inputLevel = 0f
     }
 
-    fun setAllowInterruptions(enabled: Boolean) {
+    fun updateAllowInterruptions(enabled: Boolean) {
         allowInterruptions = enabled
         preferences.edit().putBoolean("live_barge_in", enabled).apply()
         audio?.allowInterruptions = enabled
