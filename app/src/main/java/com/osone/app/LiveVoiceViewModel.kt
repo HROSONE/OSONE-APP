@@ -50,6 +50,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     var attempts by mutableStateOf<List<String>>(emptyList())
         private set
     var screenSharing by mutableStateOf(false)
+    var localToolsAvailable by mutableStateOf(true)
+        private set
 
     private var candidates = emptyList<LiveModel>()
     private var candidateIndex = 0
@@ -63,6 +65,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private var interruptions = 0
     private var lastBackpressure = 0L
     private var reconnectOnce = false
+    private var retriedWithoutTools = false
     @Volatile private var running = false
 
     fun select(model: LiveModel) {
@@ -90,6 +93,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         candidates = LiveModel.candidates(selected, fallback)
         candidateIndex = 0
         reconnectOnce = false
+        retriedWithoutTools = false
+        localToolsAvailable = true
         attempts = emptyList()
         connect()
     }
@@ -143,9 +148,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                     val setup = JSONObject().put("setup", JSONObject()
                         .put("model", "models/${model.id}")
                         .put("generationConfig", generation)
-                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations())))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
                             .put("text", "Você é OSONE APP, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Use ações locais apenas quando Henrique pedir. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
+                    if (localToolsAvailable) setup.getJSONObject("setup")
+                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations())))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
                 }
             }
@@ -304,6 +310,13 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         audio?.stop(); audio = null
         if (unauthorized) { stop(); status = "Chave Gemini recusada. Confira em Ajustes."; return }
         if (terminal) { stop(); status = "Live indisponível: $cause."; return }
+        if (!wasReady && !retriedWithoutTools && (cause.contains("1007") || cause == "HTTP 400")) {
+            retriedWithoutTools = true
+            localToolsAvailable = false
+            diagnostics.record("Agente local", "Configuração de ações recusada neste modelo; reconectando somente voz.")
+            connect()
+            return
+        }
         if (wasReady && !reconnectOnce) {
             reconnectOnce = true
             connect()

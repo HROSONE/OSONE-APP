@@ -193,8 +193,10 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: (
         } else if (viewModel.provider == ChatProvider.GEMINI && viewModel.lastAnswerModel != null && viewModel.lastAnswerModel != viewModel.selectedModel) {
             Text("Última resposta: ${viewModel.lastAnswerModel?.label}", style = MaterialTheme.typography.bodySmall)
         }
-        if (viewModel.error != null) Text("Falha no chat · toque no indicador vermelho para ver o erro.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        viewModel.error?.let { message ->
+            Text(if (viewModel.attachment != null) message else "Falha no chat · toque no indicador vermelho para ver o erro.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
         if (permissionError) Text("Permita o microfone para conversar por voz.", color = MaterialTheme.colorScheme.error)
         viewModel.attachment?.let { selected ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -433,6 +435,9 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
+        Text(if (live.localToolsAvailable) "Agente Android: peça para abrir um app ou consultar bateria e hora."
+            else "Este modelo aceitou somente voz; ações locais indisponíveis nesta sessão.",
+            style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onOverlay, enabled = live.active != null) {
             Text(if (bubblePermission) "Mostrar bolha sobre outros apps" else "Permitir bolha flutuante")

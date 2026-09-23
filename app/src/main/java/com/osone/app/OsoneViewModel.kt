@@ -266,6 +266,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 diagnostics.record(if (selectedFile != null) "Arquivo Gemini" else "Chat ${selectedProvider.label}", when (exception) {
                     is ChatProviderHttpException -> "HTTP ${exception.status} durante resposta. Modelo: ${if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel}."
                     is GeminiHttpException -> "HTTP ${exception.status} durante resposta Gemini."
+                    exception is IllegalArgumentException && selectedFile != null ->
+                        "${exception.javaClass.simpleName}: ${exception.message?.take(130) ?: "arquivo inválido"}"
                     else -> "${exception.javaClass.simpleName}: falha ao obter resposta."
                 })
                 error = when {
@@ -275,6 +277,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                         "Chave ${exception.provider.label} recusada. Confira em Ajustes."
                     exception is ChatProviderHttpException && exception.status == 404 ->
                         "Groq HTTP 404: modelo ou recurso indisponível. Consulte os modelos em Ajustes."
+                    selectedFile != null && exception is GeminiHttpException && exception.status == 400 ->
+                        "Gemini não aceitou este formato de arquivo ou o conteúdo. Tente PDF, imagem ou texto."
                     else -> exception.message ?: "Não consegui responder agora."
                 }
                 // Mantém o texto do usuário para reenvio ou cópia após falha.

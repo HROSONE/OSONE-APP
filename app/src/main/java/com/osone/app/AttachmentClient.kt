@@ -119,18 +119,22 @@ class AttachmentClient(private val context: Context) {
             JSONObject(send.inputStream.bufferedReader().use { it.readText() }).getJSONObject("file")
         } finally { send.disconnect() }
         val name = stored.getString("name")
-        var metadata = stored
-        repeat(15) {
-            when (metadata.optString("state")) {
-                "ACTIVE", "" -> return Payload(JSONObject().put("fileData", JSONObject()
-                    .put("fileUri", metadata.getString("uri")).put("mimeType", ref.mime)), name)
-                "FAILED" -> { delete(name, key); throw IllegalStateException("O serviço não conseguiu processar o arquivo.") }
+        try {
+            var metadata = stored
+            repeat(15) {
+                when (metadata.optString("state")) {
+                    "ACTIVE", "" -> return Payload(JSONObject().put("fileData", JSONObject()
+                        .put("fileUri", metadata.getString("uri")).put("mimeType", ref.mime)), name)
+                    "FAILED" -> throw IllegalStateException("O serviço não conseguiu processar o arquivo.")
+                }
+                Thread.sleep(2000)
+                metadata = fileInfo(name, key)
             }
-            Thread.sleep(2000)
-            metadata = fileInfo(name, key)
+            throw IllegalStateException("O serviço demorou demais para processar o arquivo.")
+        } catch (failure: Exception) {
+            try { delete(name, key) } catch (_: Exception) {}
+            throw failure
         }
-        delete(name, key)
-        throw IllegalStateException("O serviço demorou demais para processar o arquivo.")
     }
 
     private fun fileInfo(name: String, key: String): JSONObject {
