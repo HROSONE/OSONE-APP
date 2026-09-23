@@ -22,6 +22,8 @@ class AndroidLocalTools(private val context: Context) {
         put(function("open_settings", "Abra a página das Configurações do Android. Áreas: geral, internet, wifi, bluetooth, som, tela, bateria, aplicativos, notificacoes, acessibilidade, privacidade, seguranca, localizacao, armazenamento, idioma, teclado, data_hora, sobre.", mapOf("area" to "Nome da área das Configurações"), listOf("area")))
         put(function("set_media_volume", "Defina o volume de mídia entre 0 e 100 por cento quando o usuário pedir. Não controla volume de chamada.", mapOf("percentual" to "Número inteiro de 0 a 100"), listOf("percentual"), true))
         put(function("set_brightness", "Defina o brilho manual entre 0 e 100 por cento quando pedido; pode exigir autorização do Android. Se brilho automático estiver ativo, abra a tela para o usuário desligá-lo.", mapOf("percentual" to "Número inteiro de 0 a 100"), listOf("percentual"), true))
+        put(function("set_screen_timeout", "Defina o tempo até a tela desligar, quando pedido. Exige autorização para modificar configurações; alguns aparelhos impõem limites próprios.", mapOf("minutos" to "1, 2, 5, 10, 15 ou 30 minutos"), listOf("minutos"), true))
+        put(function("set_auto_rotate", "Ligue ou desligue a rotação automática da tela quando pedido. Exige autorização para modificar configurações.", mapOf("ativada" to "true para ligar ou false para desligar"), listOf("ativada")))
         put(function("device_status", "Veja bateria e hora locais.", emptyMap()))
         put(function("inspect_screen", "Leia os controles acessíveis visíveis antes de interagir.", emptyMap()))
         put(function("check_ui", "Depois de agir, confira se um texto/controle aparece na janela atual. Resultado encontrado não garante que uma tarefa externa terminou.", mapOf("texto" to "Texto esperado na tela"), listOf("texto")))
@@ -37,8 +39,8 @@ class AndroidLocalTools(private val context: Context) {
         JSONObject().put("name", name).put("description", description).apply {
             if (fields.isNotEmpty()) put("parameters", JSONObject().put("type", "OBJECT")
                 .put("properties", JSONObject().apply { fields.forEach { (key, value) ->
-                put(key, JSONObject().put("type", if (key == "incluir_sistema") "BOOLEAN"
-                    else if (numbers && key in listOf("x", "y", "fim_x", "fim_y", "percentual")) "INTEGER" else "STRING").put("description", value))
+                put(key, JSONObject().put("type", if (key == "incluir_sistema" || key == "ativada") "BOOLEAN"
+                    else if (numbers && key in listOf("x", "y", "fim_x", "fim_y", "percentual", "minutos")) "INTEGER" else "STRING").put("description", value))
                 } }).put("required", JSONArray(required)))
         }
 
@@ -133,6 +135,27 @@ class AndroidLocalTools(private val context: Context) {
                     JSONObject().put("brilho_percentual_aproximado", value)
                 }
             }
+            "set_screen_timeout" -> {
+                val minutes = args.optInt("minutos", -1)
+                require(minutes in listOf(1, 2, 5, 10, 15, 30)) { "Escolha 1, 2, 5, 10, 15 ou 30 minutos." }
+                if (!Settings.System.canWrite(context)) requestWriteSettings() else {
+                    check(Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT,
+                        minutes * 60_000)) { "O Android não permitiu mudar o tempo da tela." }
+                    JSONObject().put("tempo_solicitado_minutos", minutes)
+                        .put("tempo_atual_minutos", Settings.System.getInt(context.contentResolver,
+                            Settings.System.SCREEN_OFF_TIMEOUT, 0) / 60_000)
+                }
+            }
+            "set_auto_rotate" -> {
+                require(args.opt("ativada") is Boolean) { "Informe ativada como true ou false." }
+                val enabled = args.getBoolean("ativada")
+                if (!Settings.System.canWrite(context)) requestWriteSettings() else {
+                    check(Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION,
+                        if (enabled) 1 else 0)) { "O Android não permitiu alterar a rotação." }
+                    JSONObject().put("rotacao_automatica", Settings.System.getInt(context.contentResolver,
+                        Settings.System.ACCELEROMETER_ROTATION, 0) == 1)
+                }
+            }
             "device_status" -> {
                 val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
@@ -176,6 +199,10 @@ class AndroidLocalTools(private val context: Context) {
         require(args.has("percentual") && value in 0..100) { "Use um percentual inteiro entre 0 e 100." }
         return value
     }
+
+    private fun requestWriteSettings(): JSONObject = open(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+        Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        "Autorize OSTIE a modificar configurações do sistema e repita o pedido.")
 
     private fun open(intent: Intent, message: String): JSONObject = try {
         context.startActivity(intent)
