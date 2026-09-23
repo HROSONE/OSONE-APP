@@ -1,6 +1,8 @@
 package com.osone.app
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -13,6 +15,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     private val secrets = SecureKeyStore(application)
     private val history = ConversationStore(application)
     private val settings = application.getSharedPreferences("osone_config", 0)
+    private val main = Handler(Looper.getMainLooper())
     var messages by androidx.compose.runtime.mutableStateOf(history.read())
         private set
     var busy by androidx.compose.runtime.mutableStateOf(false)
@@ -22,6 +25,10 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     var selectedModel by androidx.compose.runtime.mutableStateOf(ChatModel.fromId(settings.getString("model", null)))
         private set
     var fallback by androidx.compose.runtime.mutableStateOf(settings.getBoolean("chat_fallback", true))
+        private set
+    var thinkingMode by androidx.compose.runtime.mutableStateOf(ThinkingMode.fromValue(settings.getString("thinking_mode", null)))
+        private set
+    var streamingText by androidx.compose.runtime.mutableStateOf("")
         private set
     var activeModel by androidx.compose.runtime.mutableStateOf<ChatModel?>(null)
         private set
@@ -41,6 +48,11 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     fun updateFallback(value: Boolean) {
         fallback = value
         settings.edit().putBoolean("chat_fallback", value).apply()
+    }
+
+    fun selectThinking(value: ThinkingMode) {
+        thinkingMode = value
+        settings.edit().putString("thinking_mode", value.value).apply()
     }
 
     /** Só limpa o campo da tela quando a gravação e a leitura de volta funcionam. */
@@ -87,6 +99,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         busy = true
         error = null
         activeModel = null
+        streamingText = ""
         val snapshot = messages
         viewModelScope.launch {
             try {
@@ -96,19 +109,26 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 for ((index, choice) in choices.withIndex()) {
                     activeModel = choice
                     try {
-                        answer = withContext(Dispatchers.IO) { GeminiClient().answer(key, choice.id, snapshot) }
+                        answer = withContext(Dispatchers.IO) {
+                            GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode) { partial ->
+                                main.post { if (busy && activeModel == choice) streamingText = partial }
+                            }
+                        }
                         used = choice
                         break
                     } catch (failure: GeminiHttpException) {
+                        streamingText = ""
                         if (!failure.allowsFallback || index == choices.lastIndex) throw failure
                     }
                 }
                 val response = answer ?: throw IllegalStateException("Nenhum modelo respondeu.")
                 lastAnswerModel = used
                 messages = messages + ChatMessage("model", response)
+                streamingText = ""
                 withContext(Dispatchers.IO) { history.save(messages) }
                 onAnswer(response)
             } catch (exception: Exception) {
+                streamingText = ""
                 error = if (exception is GeminiHttpException && exception.status in listOf(401, 403))
                     "Chave sem acesso à API Gemini. Confira a chave e as permissões no Google AI Studio."
                 else exception.message ?: "Não consegui responder agora."

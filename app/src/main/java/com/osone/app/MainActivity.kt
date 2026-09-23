@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
     private var permissionError by mutableStateOf(false)
+    private var darkMode by mutableStateOf(false)
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openLive() else permissionError = true
     }
@@ -51,15 +52,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
         setContent {
             var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
             val purple = Color(0xFF7044D7)
-            MaterialTheme(colorScheme = lightColorScheme(primary = purple)) {
+            MaterialTheme(colorScheme = if (darkMode) darkColorScheme(
+                primary = Color(0xFFC4AAFF), background = Color(0xFF101018), surface = Color(0xFF101018))
+                else lightColorScheme(primary = purple)) {
                 Surface(Modifier.fillMaxSize()) {
                     if (showLive) LiveScreen(live, onBack = { live.stop(); showLive = false })
-                    else if (showSettings) SettingsScreen(viewModel, live, onBack = { showSettings = false })
+                    else if (showSettings) SettingsScreen(viewModel, live, darkMode,
+                        onDarkMode = { enabled ->
+                            darkMode = enabled
+                            getSharedPreferences("osone_config", 0).edit().putBoolean("dark_mode", enabled).apply()
+                        }, onBack = { showSettings = false })
                     else ChatScreen(viewModel, onMic = {
                             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                                 openLive()
@@ -90,6 +98,9 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
     LaunchedEffect(viewModel.messages.size) {
         if (viewModel.messages.isNotEmpty()) scope.launch { scroll.animateScrollToItem(viewModel.messages.lastIndex) }
     }
+    LaunchedEffect(viewModel.streamingText.length) {
+        if (viewModel.streamingText.isNotBlank()) scroll.scrollToItem(viewModel.messages.size)
+    }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("OSONE APP", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
@@ -110,6 +121,16 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
                             Spacer(Modifier.height(4.dp))
                             Text(message.text)
                         }
+                    }
+                }
+            }
+            if (viewModel.streamingText.isNotBlank()) item {
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(0.90f)) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("OSONE · respondendo", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(viewModel.streamingText)
                     }
                 }
             }
@@ -138,11 +159,16 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
 }
 
 @Composable
-private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, onBack: () -> Unit) {
+private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, darkMode: Boolean,
+    onDarkMode: (Boolean) -> Unit, onBack: () -> Unit) {
     var key by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← Conversa") }
         Text("Configurações", style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Modo noturno", modifier = Modifier.weight(1f))
+            Switch(checked = darkMode, onCheckedChange = onDarkMode)
+        }
         Text(if (viewModel.configured) "✓ Chave Gemini salva neste aparelho (oculta por segurança)" else "Nenhuma chave Gemini salva")
         OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Nova chave Gemini") },
             placeholder = { Text(if (viewModel.configured) "Cole aqui somente para trocar a chave" else "Cole sua chave Gemini") },
@@ -153,6 +179,8 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
         HorizontalDivider()
         Text("Cérebro do chat escrito", style = MaterialTheme.typography.titleMedium)
         ChatModelPicker(viewModel)
+        ThinkingModePicker(viewModel)
+        Text("Rápido responde com menos espera; Profundo pode demorar mais. O Gemini 2.5 mantém seu comportamento próprio.", style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
             Switch(checked = viewModel.fallback, onCheckedChange = viewModel::updateFallback)
@@ -175,6 +203,21 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancelar") } })
         viewModel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text("A chave salva é compartilhada entre o chat escrito e o Live neste aparelho. A lista de modelos do cérebro controla o chat; a lista Live controla a conversa por voz. Internet e cota Gemini são necessárias.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ThinkingModePicker(viewModel: OsoneViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("Raciocínio: ${viewModel.thinkingMode.label}  ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ThinkingMode.entries.forEach { mode ->
+                DropdownMenuItem(text = { Text(mode.label) }, onClick = {
+                    viewModel.selectThinking(mode); expanded = false
+                })
+            }
+        }
     }
 }
 
@@ -232,6 +275,10 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
             VoiceOrb(live.inputLevel, live.outputLevel, live.connected)
         }
         Text(live.status, style = MaterialTheme.typography.titleMedium)
+        if (!live.connected && live.attempts.isNotEmpty()) {
+            Text("Diagnóstico: ${live.attempts.last()}", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error)
+        }
         if (live.active != null && live.selected != live.active)
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))

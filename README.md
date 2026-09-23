@@ -5,12 +5,13 @@ Projeto **Android nativo** em Kotlin e Jetpack Compose, separado do [OSONE-AI-co
 ## Funciona agora
 
 - Conversa por texto com Gemini via HTTPS, usando uma chave individual configurada no aparelho.
-- Histórico local de até 100 mensagens e contexto das últimas 20 mensagens por chamada.
+- Histórico local de até 100 mensagens e contexto das últimas 12 mensagens por chamada.
 - Botão 🎙️ Live junto ao campo de texto abre um orbe central reativo ao volume de entrada e à resposta. A conversa usa PCM bidirecional via WebSocket Gemini Live, com interrupção da fala, sem transcrição e sem sintetizador do Android. O chat escrito continua acessível ao voltar.
-- Seleção entre `gemini-3.8-live`, `gemini-3.1-flash-live-preview` e `gemini-2.5-flash-native-audio-preview-12-2025`, com fallback automático opcional e retomada de sessão quando o serviço fornece um identificador.
+- Seleção entre `gemini-3.8-live`, `gemini-3.1-flash-live-preview` e `gemini-2.5-flash-native-audio-preview-12-2025`, com fallback automático opcional. A configuração do Live usa `setup.generationConfig.responseModalities`; o app trata quadros WebSocket binários e de texto e exibe o código/categoria de falha de conexão sem revelar a chave.
 - Leitura opcional das respostas do **chat escrito** com TextToSpeech do Android.
 - Chave criptografada com Android Keystore e AES-GCM; histórico em armazenamento privado do app. Chaves não entram no Git nem no APK.
-- Escolha do cérebro do chat entre Gemini 3.8, 3.7, 3.6, 3.5 e 2.5 Flash; padrão `gemini-3.8-flash`. Com fallback ligado, indisponibilidade ou cota do modelo levam à tentativa das versões anteriores, sem repetir a mensagem na conversa. Erros de autenticação não acionam fallback.
+- Escolha do cérebro do chat entre Gemini 3.8, 3.7, 3.6, 3.5 e 2.5 Flash; padrão `gemini-3.8-flash`. Com fallback ligado, indisponibilidade ou cota do modelo levam à tentativa das versões anteriores, sem repetir a mensagem na conversa. Erros de autenticação não acionam fallback. O chat transmite a resposta em trechos enquanto ela é gerada e oferece níveis de raciocínio rápido, equilibrado e profundo; o rápido é padrão.
+- Modo noturno persistente em Ajustes.
 - Ajustes confirmam a gravação criptografada da chave por leitura de volta. O campo fica vazio após sucesso porque a chave armazenada permanece oculta; falhas mantêm o texto digitado e exibem erro.
 
 ## Ainda precisa ser portado do OSONE atual
@@ -26,4 +27,4 @@ O projeto original inclui memória avançada, anexos, câmera/tela, casa intelig
 
 Na CI, o workflow roda testes unitários, compila `assembleDebug` e disponibiliza o APK como artefato. A compilação local exige Android SDK e acesso às dependências do Google Maven/Maven Central. Este checkout não inclui `gradlew`; a CI instala Gradle, e o Android Studio pode gerar o wrapper para desenvolvimento local.
 
-**Limites:** o modo Live exige internet, uma chave com acesso ao modelo escolhido, cota disponível, permissão do microfone e saída de áudio no aparelho. O chat escrito não importa automaticamente o contexto do Live, nem registra o áudio. O áudio usa a chave individual na conexão direta; para distribuição pública com credenciais de servidor, substituir por tokens efêmeros emitidos por backend. Ainda é necessário testar a latência e o cancelamento acústico em aparelhos reais. O aplicativo não executa ações no celular em resposta ao texto do modelo.
+**Limites:** o modo Live exige internet, uma chave com acesso ao modelo escolhido, cota disponível, permissão do microfone e saída de áudio no aparelho. O chat escrito não importa automaticamente o contexto do Live, nem registra o áudio. A reconexão atual abre uma nova sessão, portanto não preserva o contexto da chamada de voz interrompida. O áudio usa a chave individual na conexão direta; para distribuição pública com credenciais de servidor, substituir por tokens efêmeros emitidos por backend. Ainda é necessário testar a latência, a conexão e o cancelamento acústico em aparelhos reais. O aplicativo não executa ações no celular em resposta ao texto do modelo.

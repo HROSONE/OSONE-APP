@@ -16,3 +16,10 @@ enum class ChatModel(val id: String, val label: String) {
             if (fallback) entries.drop(entries.indexOf(selected)) else listOf(selected)
     }
 }
+
+enum class ThinkingMode(val value: String, val label: String) {
+    FAST("low", "Rápido"), BALANCED("medium", "Equilibrado"), DEEP("high", "Profundo");
+    companion object {
+        fun fromValue(value: String?) = entries.firstOrNull { it.value == value } ?: FAST
+    }
+}

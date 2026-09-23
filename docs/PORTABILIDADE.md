@@ -6,7 +6,7 @@ Fonte consultada: `zerobob623-bit/OSONE-AI-code`, branch `main`, mapa `FEATURES.
 | --- | --- | --- |
 | Chat Gemini | Kotlin, HTTPS e histórico privado | Primeira versão |
 | Entrada e saída de voz | AudioRecord e AudioTrack no Live; TextToSpeech opcional no chat escrito | Live implementado, validação em aparelho pendente |
-| Gemini Live, barge-in e reprodução PCM | AudioRecord, AudioTrack, WebSocket, interrupção, resumption e fallback entre modelos | Implementado, validação em aparelho pendente |
+| Gemini Live, barge-in e reprodução PCM | AudioRecord, AudioTrack, WebSocket com quadros binários/texto, interrupção, reconexão sem histórico e fallback entre modelos | Implementado, validação em aparelho pendente |
 | Memória e anexos | Room, indexação local e Android Photo Picker/SAF | Pendente |
 | Ler tela e câmera | MediaProjection com consentimento, CameraX | Pendente |
 | Abrir apps e links | Intents autorizadas e confirmação | Pendente |

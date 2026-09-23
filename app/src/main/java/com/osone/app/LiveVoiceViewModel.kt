@@ -13,6 +13,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -41,6 +42,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var outputLevel by mutableStateOf(0f)
         private set
+    var attempts by mutableStateOf<List<String>>(emptyList())
+        private set
 
     private var candidates = emptyList<LiveModel>()
     private var candidateIndex = 0
@@ -48,8 +51,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     @Volatile private var socket: WebSocket? = null
     @Volatile private var ready = false
     private var audio: LiveAudioEngine? = null
-    private var resumptionHandle: String? = null
-    private var resumedOnce = false
+    private var reconnectOnce = false
     private var running = false
 
     fun select(model: LiveModel) {
@@ -70,6 +72,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         running = true
         candidates = LiveModel.candidates(selected, fallback)
         candidateIndex = 0
+        reconnectOnce = false
+        attempts = emptyList()
         connect()
     }
 
@@ -88,7 +92,6 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         socket = null
         audio?.stop(); audio = null
         key = null
-        resumptionHandle = null
         inputLevel = 0f; outputLevel = 0f
         status = "Conversa encerrada"
     }
@@ -96,11 +99,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private fun connect() {
         val apiKey = key ?: return
         val model = candidates.getOrNull(candidateIndex) ?: return
-        val currentHandle = resumptionHandle
         ready = false
         connected = false
         active = model
-        status = if (currentHandle != null) "Reconectando ${model.label}…" else "Conectando ${model.label}…"
+        status = if (reconnectOnce) "Reconectando ${model.label}…" else "Conectando ${model.label}…"
         // Query encodificada; chave apenas em memória, sem logs ou mensagens de erro de rede.
         val url = endpoint.toHttpUrl().newBuilder().scheme("https").addQueryParameter("key", apiKey).build()
         val request = Request.Builder().url(url).build()
@@ -108,37 +110,69 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 main.post {
                     if (!running || socket !== webSocket) return@post
+                    // Começa com o setup mínimo da documentação, comum aos modelos Live.
                     val setup = JSONObject().put("setup", JSONObject()
                         .put("model", "models/${model.id}")
-                        .put("responseModalities", JSONArray().put("AUDIO"))
+                        .put("generationConfig", JSONObject().put("responseModalities", JSONArray().put("AUDIO")))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSONE APP, assistente de Henrique. Converse naturalmente em português brasileiro. Não afirme ter executado ações externas que não realizou."))))
-                        .put("sessionResumption", if (currentHandle == null) JSONObject() else JSONObject().put("handle", currentHandle))
-                        .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject())))
-                    if (!webSocket.send(setup.toString())) fail(webSocket, false)
+                            .put("text", "Você é OSONE APP, assistente de Henrique. Converse naturalmente em português brasileiro. Não afirme ter executado ações externas que não realizou.")))))
+                    if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                main.post {
-                    if (!running || socket !== webSocket) return@post
-                    try { handleMessage(webSocket, JSONObject(text)) } catch (_: Exception) {
-                        // Um evento desconhecido não derruba o fluxo de áudio.
-                    }
-                }
+                dispatchMessage(webSocket, text)
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                // O Gemini pode enviar setupComplete e áudio em quadros binários JSON.
+                dispatchMessage(webSocket, bytes.utf8())
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                main.post { fail(webSocket, response?.code == 401 || response?.code == 403) }
+                main.post {
+                    val code = response?.code
+                    val cause = when {
+                        code != null -> "HTTP $code"
+                        t is java.net.UnknownHostException -> "DNS ou internet indisponível"
+                        t is javax.net.ssl.SSLException -> "falha TLS"
+                        t is java.net.SocketTimeoutException -> "tempo de conexão esgotado"
+                        else -> "falha de rede (${t.javaClass.simpleName.take(40)})"
+                    }
+                    fail(webSocket, cause, code == 401 || code == 403,
+                        code == null || code == 401 || code == 403)
+                }
             }
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                main.post { fail(webSocket, code == 1008 && reason.contains("auth", ignoreCase = true)) }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                main.post {
+                    // Nunca mostra o texto bruto do servidor: pode conter dados da requisição.
+                    val invalidKey = reason.contains("api key", true) || reason.contains("unauth", true) ||
+                        reason.contains("permission denied", true)
+                    fail(webSocket, "WebSocket $code" + when {
+                        invalidKey -> " (chave recusada)"
+                        code == 1007 -> " (configuração ou modelo recusado)"
+                        code == 1011 -> " (falha temporária do serviço)"
+                        else -> ""
+                    }, invalidKey, code == 1006)
+                }
             }
         }
-        val newSocket = client.newWebSocket(request, listener)
+        val newSocket = try { client.newWebSocket(request, listener) } catch (_: Exception) {
+            stop(); status = "Não foi possível abrir a conexão Live."; return
+        }
         socket = newSocket
-        main.postDelayed({ if (running && socket === newSocket && !ready) fail(newSocket, false) }, 15_000)
+        main.postDelayed({ if (running && socket === newSocket && !ready)
+            fail(newSocket, "servidor não confirmou a sessão em 15 s") }, 15_000)
+    }
+
+    private fun dispatchMessage(webSocket: WebSocket, data: String) {
+        main.post {
+            if (!running || socket !== webSocket) return@post
+            try { handleMessage(webSocket, JSONObject(data)) } catch (_: Exception) {
+                fail(webSocket, "resposta Live inválida", terminal = true)
+            }
+        }
     }
 
     private fun handleMessage(ws: WebSocket, message: JSONObject) {
@@ -163,10 +197,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 } catch (_: Exception) { stop(); status = "Não foi possível iniciar o microfone ou o alto-falante." }
             }
         }
-        message.optJSONObject("sessionResumptionUpdate")?.let { update ->
-            if (update.optBoolean("resumable")) resumptionHandle = update.optString("newHandle").takeIf { it.isNotBlank() }
-        }
-        if (message.has("goAway")) { fail(ws, false); return }
+        if (message.has("goAway")) { fail(ws, "servidor pediu reconexão"); return }
+        if (message.has("error")) { fail(ws, "erro comunicado pelo serviço"); return }
         val content = message.optJSONObject("serverContent") ?: return
         if (content.optBoolean("interrupted")) audio?.interrupt()
         val parts = content.optJSONObject("modelTurn")?.optJSONArray("parts") ?: return
@@ -179,28 +211,29 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun fail(ws: WebSocket, unauthorized: Boolean) {
+    private fun fail(ws: WebSocket, cause: String, unauthorized: Boolean = false, terminal: Boolean = false) {
         if (!running || socket !== ws) return
+        val wasReady = ready
+        attempts = attempts + "${active?.label.orEmpty()}: $cause"
         ready = false
         connected = false
         socket = null
         ws.cancel()
         audio?.stop(); audio = null
         if (unauthorized) { stop(); status = "Chave Gemini recusada. Confira em Ajustes."; return }
-        if (resumptionHandle != null && !resumedOnce) {
-            resumedOnce = true
+        if (terminal) { stop(); status = "Live indisponível: $cause."; return }
+        if (wasReady && !reconnectOnce) {
+            reconnectOnce = true
             connect()
             return
         }
-        resumptionHandle = null
-        resumedOnce = false
+        reconnectOnce = false
         candidateIndex++
         if (candidateIndex < candidates.size) {
-            status = "Tentando outro modelo…"
             connect()
         } else {
             stop()
-            status = "Não foi possível conectar aos modelos Live. Confira a internet, a chave e a cota."
+            status = "Nenhum modelo Live conectou. Veja o diagnóstico abaixo."
         }
     }
 
