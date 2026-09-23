@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun openLive() {
         permissionError = false
         showLive = true
+        volumeControlStream = AudioManager.STREAM_VOICE_CALL
         if (live.active == null) LiveSessionService.command(this, LiveSessionService.START)
     }
 
@@ -78,7 +79,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         diagnostics.installCrashHandler()
         showLive = live.active != null
         bubblePermission = Settings.canDrawOverlays(this)
-        volumeControlStream = AudioManager.STREAM_MUSIC
+        volumeControlStream = if (showLive) AudioManager.STREAM_VOICE_CALL else AudioManager.STREAM_MUSIC
         darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
         setContent {
@@ -104,8 +105,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             screenPermission.launch(manager.createScreenCaptureIntent())
                         },
                         onStopScreen = { LiveSessionService.command(this, LiveSessionService.SCREEN_STOP) },
-                        onEnd = { LiveSessionService.command(this, LiveSessionService.STOP); showLive = false },
-                        onDiagnostics = { showDiagnostics = true }, onBack = { showLive = false })
+                        onEnd = { LiveSessionService.command(this, LiveSessionService.STOP); showLive = false;
+                            volumeControlStream = AudioManager.STREAM_MUSIC },
+                        onDiagnostics = { showDiagnostics = true }, onBack = { showLive = false;
+                            volumeControlStream = AudioManager.STREAM_MUSIC })
                     else if (showSettings) SettingsScreen(viewModel, live, darkMode,
                         onDarkMode = { enabled ->
                             darkMode = enabled

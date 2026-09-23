@@ -1,7 +1,10 @@
 package com.osone.app
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -16,6 +19,7 @@ import kotlin.math.sqrt
 
 /** PCM16 mono: 16 kHz de entrada e 24 kHz de saída, sem reconhecimento de fala ou TTS. */
 class LiveAudioEngine(
+    private val context: Context,
     private val send: (String) -> Unit,
     private val inputLevel: (Float) -> Unit,
     private val outputLevel: (Float) -> Unit,
@@ -36,34 +40,62 @@ class LiveAudioEngine(
     private var echoCanceler: AcousticEchoCanceler? = null
     private var leftoverByte: Byte? = null
     private var lastOverflowWarning = 0L
+    private var previousAudioMode: Int? = null
+    private var previousSpeakerphone = false
+    private var selectedSpeaker = false
 
     fun start() {
+        val manager = context.getSystemService(AudioManager::class.java)
+        if (manager.mode == AudioManager.MODE_NORMAL) {
+            previousAudioMode = manager.mode
+            previousSpeakerphone = manager.isSpeakerphoneOn
+            manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val selected = manager.communicationDevice
+                if (selected == null || selected.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+                    val external = manager.availableCommunicationDevices.any {
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                    }
+                    if (!external) selectedSpeaker = manager.availableCommunicationDevices
+                        .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                        ?.let(manager::setCommunicationDevice) == true
+                }
+            } else if (!manager.isWiredHeadsetOn && !manager.isBluetoothScoOn)
+                manager.isSpeakerphoneOn = true
+        }
         val inputBuffer = maxOf(4096, AudioRecord.getMinBufferSize(16000,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT))
         val outputBuffer = maxOf(32768, AudioTrack.getMinBufferSize(24000,
             AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT))
         val input = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, inputBuffer)
-        if (input.state != AudioRecord.STATE_INITIALIZED) { input.release(); throw IllegalStateException("Microfone indisponível") }
+        if (input.state != AudioRecord.STATE_INITIALIZED) {
+            input.release(); restoreAudioRouting(); throw IllegalStateException("Microfone indisponível")
+        }
         echoCanceler = try {
             if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(input.audioSessionId)?.also { it.enabled = true }
             else null
         } catch (_: Exception) { null }
+        if (echoCanceler?.enabled != true)
+            onDiagnostic("Cancelamento de eco do Android indisponível nesta rota de áudio; um fone pode evitar interrupções.")
         val output = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(24000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
             .setBufferSizeInBytes(outputBuffer).setTransferMode(AudioTrack.MODE_STREAM).build()
         if (output.state != AudioTrack.STATE_INITIALIZED) {
             echoCanceler?.release(); echoCanceler = null
-            input.release(); output.release(); throw IllegalStateException("Áudio indisponível")
+            input.release(); output.release(); restoreAudioRouting(); throw IllegalStateException("Áudio indisponível")
         }
         // O pré-buffer é controlado pela fila acima; respostas curtas também precisam tocar.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) output.setStartThresholdInFrames(1)
         try { input.startRecording() } catch (error: Exception) {
             echoCanceler?.release(); echoCanceler = null
-            input.release(); output.release(); throw error
+            input.release(); output.release(); restoreAudioRouting(); throw error
         }
         recorder = input; player = output; running = true
         Thread({
@@ -195,7 +227,21 @@ class LiveAudioEngine(
             try { player?.pause(); player?.flush(); player?.stop() } catch (_: Exception) {}
             player?.release(); player = null
         }
+        restoreAudioRouting()
         inputLevel(0f); outputLevel(0f)
+    }
+
+    private fun restoreAudioRouting() {
+        val previous = previousAudioMode ?: return
+        previousAudioMode = null
+        val manager = context.getSystemService(AudioManager::class.java)
+        if (manager.mode == AudioManager.MODE_IN_COMMUNICATION) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (selectedSpeaker) manager.clearCommunicationDevice()
+            } else manager.isSpeakerphoneOn = previousSpeakerphone
+            manager.mode = previous
+        }
+        selectedSpeaker = false
     }
 
     /** Ganho digital com saturação: evita overflow ao aumentar uma resposta PCM baixa. */

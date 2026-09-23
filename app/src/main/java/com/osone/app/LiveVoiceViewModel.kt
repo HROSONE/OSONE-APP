@@ -289,6 +289,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             if (audio == null) {
                 try {
                     audio = LiveAudioEngine(
+                        context = getApplication(),
                         send = { data ->
                             val current = socket
                             if (ready && current != null && current.queueSize() < 512_000L) {

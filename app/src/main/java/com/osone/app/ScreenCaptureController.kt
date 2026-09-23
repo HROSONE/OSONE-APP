@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -13,6 +14,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.util.Base64
+import android.view.Display
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
@@ -29,11 +31,15 @@ class ScreenCaptureController(
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var lastFrame = 0L
+    private var capturedFrames = 0
+    private var captureWidth = 0
+    private var captureHeight = 0
     @Volatile private var closed = false
     private val callback = object : MediaProjection.Callback() {
         override fun onStop() { handler.post { stop(); Handler(Looper.getMainLooper()).post(onEnd) } }
         override fun onCapturedContentResize(width: Int, height: Int) {
-            handler.post { if (!closed && width > 0 && height > 0) configure(width, height, resize = true) }
+            handler.post { if (!closed && width > 0 && height > 0 &&
+                (width != captureWidth || height != captureHeight)) configure(width, height, resize = true) }
         }
     }
 
@@ -44,15 +50,26 @@ class ScreenCaptureController(
         projection = captured
         captured.registerCallback(callback, handler)
         val bounds = context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
-        configure(bounds.width(), bounds.height(), resize = false)
+        val fallback = Point()
+        @Suppress("DEPRECATION")
+        context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)?.getRealSize(fallback)
+        val width = if (bounds.width() > 2) bounds.width() else fallback.x
+        val height = if (bounds.height() > 2) bounds.height() else fallback.y
+        require(width > 2 && height > 2) { "Android não informou as dimensões da tela" }
+        // O VirtualDisplay usa o tamanho real; só a imagem enviada é reduzida.
+        configure(width, height, resize = false)
+        handler.postDelayed({
+            if (!closed && capturedFrames == 0 && display != null)
+                configure(captureWidth, captureHeight, resize = true)
+        }, 4000)
     }
 
     private fun configure(width: Int, height: Int, resize: Boolean) {
         if (closed) return
-        // Preserve texto pequeno: uma tela 1080x2400 ficava ilegível em 461x1024.
-        val scale = minOf(1.0, 1600.0 / maxOf(width, height))
-        val w = maxOf(2, (width * scale).toInt())
-        val h = maxOf(2, (height * scale).toInt())
+        val w = width
+        val h = height
+        captureWidth = width
+        captureHeight = height
         val oldReader = reader
         val newReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         newReader.setOnImageAvailableListener({ source ->
@@ -61,25 +78,36 @@ class ScreenCaptureController(
                 val now = System.currentTimeMillis()
                 if (!closed && now - lastFrame >= 1000) {
                     lastFrame = now
+                    capturedFrames++
                     onCapture()
                     val plane = image.planes[0]
                     val paddedWidth = plane.rowStride / plane.pixelStride
                     val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
-                    // A última linha pode não conter padding no ByteBuffer da imagem.
-                    val bytes = ByteBuffer.allocate(plane.rowStride * image.height)
-                    bytes.put(plane.buffer)
-                    bytes.rewind()
-                    padded.copyPixelsFromBuffer(bytes)
-                    val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
-                    ByteArrayOutputStream().use { stream ->
-                        cropped.compress(Bitmap.CompressFormat.JPEG, 50, stream)
-                        if (stream.size() > 90_000) {
-                            stream.reset()
-                            cropped.compress(Bitmap.CompressFormat.JPEG, 32, stream)
-                        }
-                        onFrame(Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP))
-                    }
-                    cropped.recycle(); padded.recycle()
+                    try {
+                        // A última linha pode não conter padding no ByteBuffer da imagem.
+                        val bytes = ByteBuffer.allocate(plane.rowStride * image.height)
+                        bytes.put(plane.buffer)
+                        bytes.rewind()
+                        padded.copyPixelsFromBuffer(bytes)
+                        val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
+                        try {
+                            val scale = minOf(1.0, 1600.0 / maxOf(image.width, image.height))
+                            val frame = if (scale < 1.0) Bitmap.createScaledBitmap(cropped,
+                                maxOf(2, (image.width * scale).toInt()),
+                                maxOf(2, (image.height * scale).toInt()), true) else cropped
+                            try {
+                                ByteArrayOutputStream().use { stream ->
+                                    frame.compress(Bitmap.CompressFormat.JPEG, 50, stream)
+                                    if (stream.size() > 90_000) {
+                                        stream.reset()
+                                        frame.compress(Bitmap.CompressFormat.JPEG, 32, stream)
+                                    }
+                                    if (stream.size() > 0)
+                                        onFrame(Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP))
+                                }
+                            } finally { if (frame !== cropped) frame.recycle() }
+                        } finally { cropped.recycle() }
+                    } finally { padded.recycle() }
                 }
             } catch (failure: Exception) {
                 AppDiagnostics.get(context).record("Tela", "Falha ao processar quadro (${failure.javaClass.simpleName}).")
