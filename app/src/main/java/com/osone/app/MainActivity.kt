@@ -1,13 +1,15 @@
 package com.osone.app
 
-import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
-import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,21 +21,30 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val viewModel: OsoneViewModel by viewModels()
+    private val live: LiveVoiceViewModel by viewModels()
     private var speech: TextToSpeech? = null
-    private var recognizedText by mutableStateOf("")
-    private val speechLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            recognizedText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
-        }
+    private var showLive by mutableStateOf(false)
+    private var permissionError by mutableStateOf(false)
+    private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) openLive() else permissionError = true
+    }
+
+    private fun openLive() {
+        permissionError = false
+        showLive = true
+        live.start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,15 +56,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val purple = Color(0xFF7044D7)
             MaterialTheme(colorScheme = lightColorScheme(primary = purple)) {
                 Surface(Modifier.fillMaxSize()) {
-                    if (showSettings) SettingsScreen(viewModel, onBack = { showSettings = false })
-                    else ChatScreen(viewModel, recognizedText, onRecognizedConsumed = { recognizedText = "" },
-                        onMic = {
-                            try {
-                                speechLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR"))
-                            } catch (_: Exception) { /* Reconhecedor indisponível: campo de texto segue funcional. */ }
-                        }, onSettings = { showSettings = true }, readAloud = readAloud,
+                    if (showLive) LiveScreen(live, onBack = { live.stop(); showLive = false })
+                    else if (showSettings) SettingsScreen(viewModel, live, onBack = { showSettings = false })
+                    else ChatScreen(viewModel, onMic = {
+                            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                                openLive()
+                            else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                        }, permissionError = permissionError, onSettings = { showSettings = true }, readAloud = readAloud,
                         onReadAloud = { readAloud = !readAloud }, onAnswer = { answer ->
                             if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
                         })
@@ -65,17 +74,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) speech?.language = Locale("pt", "BR")
     }
+    override fun onStop() { live.stop(); super.onStop() }
     override fun onDestroy() { speech?.stop(); speech?.shutdown(); super.onDestroy() }
 }
 
 @Composable
-private fun ChatScreen(viewModel: OsoneViewModel, recognizedText: String, onRecognizedConsumed: () -> Unit,
-    onMic: () -> Unit, onSettings: () -> Unit, readAloud: Boolean, onReadAloud: () -> Unit,
+private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionError: Boolean,
+    onSettings: () -> Unit, readAloud: Boolean, onReadAloud: () -> Unit,
     onAnswer: (String) -> Unit) {
     var draft by remember { mutableStateOf("") }
-    LaunchedEffect(recognizedText) {
-        if (recognizedText.isNotBlank()) { draft = recognizedText; onRecognizedConsumed() }
-    }
     val scroll = rememberLazyListState()
     val scope = rememberCoroutineScope()
     LaunchedEffect(viewModel.messages.size) {
@@ -108,13 +115,14 @@ private fun ChatScreen(viewModel: OsoneViewModel, recognizedText: String, onReco
         viewModel.error?.let { error ->
             TextButton(onClick = viewModel::dismissError) { Text("$error  ✕", color = MaterialTheme.colorScheme.error) }
         }
+        if (permissionError) Text("Permita o microfone para conversar por voz.", color = MaterialTheme.colorScheme.error)
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = draft, onValueChange = { draft = it }, label = { Text("Escreva ou dite") },
+            OutlinedTextField(value = draft, onValueChange = { draft = it }, label = { Text("Escreva sua mensagem") },
                 modifier = Modifier.weight(1f), maxLines = 5,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (viewModel.send(draft, onAnswer)) draft = "" }))
             Column {
-                TextButton(onClick = onMic) { Text("🎙️") }
+                TextButton(onClick = onMic) { Text("🎙️ Live") }
                 Button(onClick = { if (viewModel.send(draft, onAnswer)) draft = "" }, enabled = draft.isNotBlank() && !viewModel.busy) { Text("Enviar") }
             }
         }
@@ -122,7 +130,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, recognizedText: String, onReco
 }
 
 @Composable
-private fun SettingsScreen(viewModel: OsoneViewModel, onBack: () -> Unit) {
+private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, onBack: () -> Unit) {
     var key by remember { mutableStateOf("") }
     var model by remember { mutableStateOf(viewModel.model) }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -134,6 +142,13 @@ private fun SettingsScreen(viewModel: OsoneViewModel, onBack: () -> Unit) {
         OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Modelo") },
             singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(onClick = { viewModel.saveSettings(key, model); key = "" }, modifier = Modifier.fillMaxWidth()) { Text("Salvar") }
+        HorizontalDivider()
+        Text("Voz em tempo real", style = MaterialTheme.typography.titleMedium)
+        LiveModelPicker(live)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
+            Switch(checked = live.fallback, onCheckedChange = live::setFallback)
+        }
         TextButton(onClick = viewModel::removeKey) { Text("Remover chave deste aparelho") }
         HorizontalDivider()
         var confirmClear by remember { mutableStateOf(false) }
@@ -143,6 +158,82 @@ private fun SettingsScreen(viewModel: OsoneViewModel, onBack: () -> Unit) {
             confirmButton = { TextButton(onClick = { viewModel.clearConversation(); confirmClear = false }) { Text("Apagar") } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancelar") } })
         viewModel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("A voz usa o reconhecimento e o sintetizador disponíveis no Android. A resposta de IA requer internet e pode consumir sua cota Gemini.", style = MaterialTheme.typography.bodySmall)
+        Text("O modo Live transmite áudio diretamente ao Gemini, sem transcrição, e reproduz a voz do modelo. O chat escrito permanece separado. A voz opcional do chat usa o sintetizador do Android. Internet e cota Gemini são necessárias.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun LiveModelPicker(live: LiveVoiceViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("Modelo: ${live.selected.label}  ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LiveModel.entries.forEach { model ->
+                DropdownMenuItem(text = { Text(model.label) }, onClick = {
+                    live.select(model); expanded = false
+                    if (live.connected || live.active != null) live.start()
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Chat") }
+            Spacer(Modifier.weight(1f))
+            Text("OSONE LIVE", style = MaterialTheme.typography.titleLarge)
+        }
+        Spacer(Modifier.height(12.dp))
+        LiveModelPicker(live)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Fallback automático")
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = live.fallback, onCheckedChange = live::setFallback)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            VoiceOrb(live.inputLevel, live.outputLevel, live.connected)
+        }
+        Text(live.status, style = MaterialTheme.typography.titleMedium)
+        if (live.active != null && live.selected != live.active)
+            Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.height(8.dp))
+        Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = live::toggleMute, enabled = live.connected) {
+                Text(if (live.muted) "Ativar microfone" else "Silenciar")
+            }
+            Button(onClick = { if (live.active == null) live.start() else live.stop() }) {
+                Text(if (live.active == null) "Tentar novamente" else "Encerrar")
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+    }
+}
+
+@Composable
+private fun VoiceOrb(input: Float, output: Float, connected: Boolean) {
+    val motion = rememberInfiniteTransition(label = "respiração do orbe")
+    val breath by motion.animateFloat(0f, 1f,
+        infiniteRepeatable(tween(2100, easing = EaseInOutSine), RepeatMode.Reverse), label = "respiração")
+    val energy by animateFloatAsState(maxOf(input, output).coerceIn(0f, 1f),
+        animationSpec = tween(100), label = "energia")
+    val speaking = output > input
+    val core = if (speaking) Color(0xFF24D2DE) else Color(0xFF8956EA)
+    Canvas(Modifier.fillMaxWidth().height(320.dp)) {
+        val radius = size.minDimension * (0.27f + breath * 0.016f + energy * 0.09f)
+        val center = center
+        drawCircle(Brush.radialGradient(listOf(core.copy(alpha = 0.25f), core.copy(alpha = 0.07f),
+            Color.Transparent), center = center, radius = radius * 1.55f), radius = radius * 1.55f)
+        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.95f), core.copy(alpha = 0.9f),
+            Color(0xFF292175)), center = center, radius = radius), radius = radius)
+        drawCircle(core.copy(alpha = if (connected) 0.55f else 0.16f),
+            radius = radius * (1.13f + energy * 0.12f), style = Stroke(width = 3.dp.toPx()))
+        drawCircle(core.copy(alpha = 0.22f), radius = radius * (1.28f + energy * 0.16f),
+            style = Stroke(width = 2.dp.toPx()))
     }
 }

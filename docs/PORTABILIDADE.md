@@ -5,8 +5,8 @@ Fonte consultada: `zerobob623-bit/OSONE-AI-code`, branch `main`, mapa `FEATURES.
 | Sistema atual | Caminho Android | Estado |
 | --- | --- | --- |
 | Chat Gemini | Kotlin, HTTPS e histórico privado | Primeira versão |
-| Entrada e saída de voz | Reconhecedor do Android e TextToSpeech | Primeira versão, sem Live contínuo |
-| Gemini Live, barge-in e reprodução PCM | AudioRecord, AudioTrack, sessão Live, interrupção e reconexão | Pendente |
+| Entrada e saída de voz | AudioRecord e AudioTrack no Live; TextToSpeech opcional no chat escrito | Live implementado, validação em aparelho pendente |
+| Gemini Live, barge-in e reprodução PCM | AudioRecord, AudioTrack, WebSocket, interrupção, resumption e fallback entre modelos | Implementado, validação em aparelho pendente |
 | Memória e anexos | Room, indexação local e Android Photo Picker/SAF | Pendente |
 | Ler tela e câmera | MediaProjection com consentimento, CameraX | Pendente |
 | Abrir apps e links | Intents autorizadas e confirmação | Pendente |
@@ -20,7 +20,7 @@ Fonte consultada: `zerobob623-bit/OSONE-AI-code`, branch `main`, mapa `FEATURES.
 ## Ordem de integração sugerida
 
 1. Definir o contrato autenticado entre o backend OSONE e o Android, com testes de conversa e histórico.
-2. Portar Gemini Live de ponta a ponta com áudio nativo, cancelamento, reconexão e telemetria.
+2. Validar Gemini Live em aparelhos reais, medir latência e cancelamento de eco; usar tokens efêmeros ao adotar um backend de distribuição.
 3. Portar anexos, câmera e leitura de tela com permissões temporárias e conteúdo visível ao usuário.
 4. Integrar casa inteligente e handoff reutilizando o backend, sem distribuir chaves de servidor.
 5. Implementar ferramentas Android específicas, com confirmação, auditoria e testes em aparelho real.
