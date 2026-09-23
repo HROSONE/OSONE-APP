@@ -73,11 +73,13 @@ class LiveSessionService : Service() {
                     if (data != null && intent.getIntExtra(SCREEN_RESULT, 0) == android.app.Activity.RESULT_OK && foreground) {
                         stopProjection()
                         showForeground(true)
+                        // O primeiro quadro pode chegar antes de start() retornar.
+                        live.screenSharing = true
                         projection = ScreenCaptureController(this,
                             onFrame = live::sendScreenFrame,
+                            onCapture = live::screenFrameCaptured,
                             onEnd = { projection = null; live.screenSharing = false; if (foreground) showForeground(false) })
                         projection?.start(data)
-                        live.screenSharing = true
                     }
                 }
                 SCREEN_STOP -> stopProjection()
@@ -151,7 +153,6 @@ class LiveSessionService : Service() {
             overlayExpanded = false; actions.visibility = View.GONE; updateBubbleSize(root)
         }
         action("Silenciar / ativar") { live.toggleMute() }
-        action("Analisar tela agora") { live.describeScreen() }
         action("Encerrar conversa") { stopSelf() }
         root.addView(actions)
         val params = WindowManager.LayoutParams(dp(56), dp(56), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,

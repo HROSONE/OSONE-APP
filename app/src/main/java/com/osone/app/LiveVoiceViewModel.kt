@@ -52,11 +52,11 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     var screenSharing by mutableStateOf(false)
     var screenFramesSent by mutableStateOf(0)
         private set
+    var screenFramesCaptured by mutableStateOf(0)
+        private set
     var screenFramesSkipped by mutableStateOf(0)
         private set
     var lastScreenFrameAt by mutableStateOf(0L)
-        private set
-    var allowInterruptions by mutableStateOf(preferences.getBoolean("live_barge_in", false))
         private set
     var localToolsAvailable by mutableStateOf(true)
         private set
@@ -105,6 +105,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         localToolsAvailable = true
         attempts = emptyList()
         screenFramesSent = 0
+        screenFramesCaptured = 0
         screenFramesSkipped = 0
         lastScreenFrameAt = 0L
         connect()
@@ -116,18 +117,14 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (muted) inputLevel = 0f
     }
 
-    fun updateAllowInterruptions(enabled: Boolean) {
-        allowInterruptions = enabled
-        preferences.edit().putBoolean("live_barge_in", enabled).apply()
-        audio?.allowInterruptions = enabled
-    }
+    fun screenFrameCaptured() { main.post { screenFramesCaptured++ } }
 
     /** Um quadro JPEG por segundo, só durante projeção autorizada pelo Android. */
     fun sendScreenFrame(encodedJpeg: String) {
         val current = socket
         if (!ready || !screenSharing || current == null) return
         // Vídeo e microfone compartilham o WebSocket. Descarta a imagem se atrasaria o áudio.
-        if (current.queueSize() > 96_000L) {
+        if (current.queueSize() > 256_000L) {
             main.post { screenFramesSkipped++ }
             if (System.currentTimeMillis() - lastBackpressure > 5000) {
                 lastBackpressure = System.currentTimeMillis()
@@ -143,19 +140,6 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Uma pergunta explícita dispara a análise dos quadros recém-enviados. */
-    fun describeScreen() {
-        val current = socket
-        if (!ready || !screenSharing || current == null ||
-            System.currentTimeMillis() - lastScreenFrameAt > 2500) {
-            status = "Aguardando uma imagem recente da tela para analisar."
-            return
-        }
-        val sent = current.send(JSONObject().put("realtimeInput", JSONObject()
-            .put("text", "Observe a tela que estou compartilhando agora. Descreva brevemente o que vê e me ajude com o que estiver acontecendo."))
-            .toString())
-        if (!sent) diagnostics.record("Tela Live", "Não foi possível pedir análise da tela nesta conexão.")
-    }
 
     fun stop() {
         running = false
@@ -272,7 +256,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 if (encoded.isNotBlank()) audio?.receive(encoded)
             }
         }
-        if (content?.optBoolean("turnComplete") == true) audio?.finishTurn()
+        if (content?.optBoolean("turnComplete") == true || content?.optBoolean("generationComplete") == true)
+            audio?.finishTurn()
         message.optJSONObject("toolCall")?.let { call ->
             main.post { if (running && socket === webSocket) handleToolCall(webSocket, call) }
         }
@@ -333,7 +318,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             stop(); status = "Áudio indisponível. Veja o diagnóstico."
                         } } },
                         onDiagnostic = { detail -> diagnostics.record("Áudio Live", detail) }
-                    ).also { it.muted = muted; it.allowInterruptions = allowInterruptions; it.start() }
+                    ).also { it.muted = muted; it.start() }
                 } catch (failure: Exception) {
                     diagnostics.record("Áudio Live", "Não iniciou microfone/alto-falante (${failure.javaClass.simpleName}).")
                     stop(); status = "Não foi possível iniciar o áudio."

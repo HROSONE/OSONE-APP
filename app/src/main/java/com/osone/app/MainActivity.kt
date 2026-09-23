@@ -409,14 +409,17 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
     var clock by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(live.screenSharing) {
         val started = System.currentTimeMillis()
-        var lastWarning = 0L
+        var warned = false
         while (live.screenSharing) {
             clock = System.currentTimeMillis()
-            if (live.connected && clock - maxOf(started, live.lastScreenFrameAt) > 6000 &&
-                clock - lastWarning > 15000) {
-                diagnostics.record("Tela Live", "Nenhum quadro de tela chegou à conexão nos últimos 6 segundos.")
-                lastWarning = clock
+            val stalled = live.connected && clock - maxOf(started, live.lastScreenFrameAt) > 6000
+            if (stalled && !warned) {
+                diagnostics.record("Tela Live", if (live.screenFramesCaptured == 0)
+                    "Projeção autorizada, mas o Android não forneceu imagens ao capturador."
+                    else "O Android gerou imagens, mas nenhuma foi enviada à conexão Live. Capturadas: ${live.screenFramesCaptured}; descartadas: ${live.screenFramesSkipped}.")
+                warned = true
             }
+            if (!stalled) warned = false
             delay(1000)
         }
     }
@@ -450,14 +453,6 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Interromper a voz quando eu falar")
-            Spacer(Modifier.width(12.dp))
-            Switch(checked = live.allowInterruptions, onCheckedChange = live::updateAllowInterruptions)
-        }
-        Text(if (live.allowInterruptions) "Você pode interromper o OSONE; o eco do alto-falante também pode cortar respostas."
-            else "Para evitar cortes por eco, o microfone espera o OSONE terminar de falar.",
-            style = MaterialTheme.typography.bodySmall)
         Text(if (live.localToolsAvailable) "Agente Android: peça para abrir um app ou consultar bateria e hora."
             else "Este modelo aceitou somente voz; ações locais indisponíveis nesta sessão.",
             style = MaterialTheme.typography.bodySmall)
@@ -474,14 +469,11 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
                 else clock - live.lastScreenFrameAt
             Text(if (!live.connected) "Tela autorizada; aguardando a conexão Live."
                 else if (age > 3500) "Tela autorizada, mas nenhum quadro recente foi enviado. Veja o diagnóstico."
-                else "Tela ativa · ${live.screenFramesSent} quadros enviados · último há ${maxOf(0L, age) / 1000} s" +
+                else "Tela ativa · ${live.screenFramesCaptured} capturados · ${live.screenFramesSent} enviados · último há ${maxOf(0L, age) / 1000} s" +
                     if (live.screenFramesSkipped > 0) " · ${live.screenFramesSkipped} descartados" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (live.connected && age > 3500) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-            OutlinedButton(onClick = live::describeScreen, enabled = live.connected && age <= 2500) {
-                Text("Analise a tela agora")
-            }
-            Text("Pergunte por voz sobre o que mudou na tela. O Live recebe até 1 quadro por segundo.",
+            Text("Pergunte por voz sobre o que está na tela. O Live recebe até 1 quadro por segundo.",
                 style = MaterialTheme.typography.bodySmall)
         }
         Text("Pode sair do app: a conversa continua até tocar em Encerrar ou na notificação.",

@@ -30,9 +30,6 @@ class LiveAudioEngine(
     @Volatile private var running = false
     @Volatile private var turnEnded = false
     @Volatile var muted = false
-    // Evita que o alto-falante volte ao servidor como uma nova fala do usuário.
-    @Volatile var allowInterruptions = false
-    @Volatile private var speaking = false
     @Volatile var outputGain = 1.4f
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
@@ -75,7 +72,7 @@ class LiveAudioEngine(
             while (running) {
                 val count = try { input.read(frame, 0, frame.size) } catch (_: Exception) { break }
                 if (count <= 0) { if (running) onError(); break }
-                if (!muted && (!speaking || allowInterruptions)) {
+                if (!muted) {
                     inputLevel(amplitude(frame, count))
                     send(Base64.encodeToString(frame, 0, count, Base64.NO_WRAP))
                 } else inputLevel(0f)
@@ -84,7 +81,7 @@ class LiveAudioEngine(
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
             var buffering = true
-            var targetBytes = 14400 // 300 ms; cresce se houver falta de dados.
+            var targetBytes = 8640 // 180 ms de pré-buffer para a saída PCM do Android.
             var lastUnderruns = output.underrunCount
             var lastWarning = 0L
             var observedGeneration = generation.get()
@@ -102,7 +99,6 @@ class LiveAudioEngine(
                         synchronized(outputLock) { if (running) { output.pause(); output.flush() } }
                         writtenFrames = 0L
                         turnEnded = false
-                        speaking = false
                         buffering = true
                     } else {
                         try { Thread.sleep(15) } catch (_: InterruptedException) { break }
@@ -121,12 +117,9 @@ class LiveAudioEngine(
                 }
                 val next = try { queue.poll(25, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break }
                 if (next == null) {
-                    if (turnEnded) { turnEnded = false; buffering = true }
-                    else if (output.underrunCount > lastUnderruns) {
+                    if (!turnEnded && output.underrunCount > lastUnderruns) {
                         lastUnderruns = output.underrunCount
-                        targetBytes = minOf(targetBytes + 4800, 28800) // Máximo de 600 ms.
-                        synchronized(outputLock) { if (running) { output.pause(); output.flush() } }
-                        writtenFrames = 0L
+                        targetBytes = minOf(targetBytes + 2880, 24000) // Máximo de 500 ms.
                         buffering = true
                         val now = System.currentTimeMillis()
                         if (now - lastWarning > 3000) {
@@ -165,7 +158,6 @@ class LiveAudioEngine(
         leftoverByte = if (data.size % 2 != 0) data.last() else null
         val bytes = if (leftoverByte != null) data.copyOf(data.size - 1) else data
         if (bytes.isEmpty()) return
-        speaking = true
         queuedBytes.addAndGet(bytes.size)
         if (!queue.offer(AudioChunk(generation.get(), bytes))) {
             queuedBytes.addAndGet(-bytes.size)
@@ -185,7 +177,6 @@ class LiveAudioEngine(
         queuedBytes.set(0)
         leftoverByte = null
         turnEnded = false
-        speaking = false
         synchronized(outputLock) {
             player?.let { if (running) { it.pause(); it.flush() } }
         }
@@ -197,7 +188,6 @@ class LiveAudioEngine(
         generation.incrementAndGet()
         queue.clear()
         queuedBytes.set(0)
-        speaking = false
         try { recorder?.stop() } catch (_: Exception) {}
         recorder?.release(); recorder = null
         echoCanceler?.release(); echoCanceler = null

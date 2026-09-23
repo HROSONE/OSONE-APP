@@ -20,6 +20,7 @@ import java.nio.ByteBuffer
 class ScreenCaptureController(
     private val context: Context,
     private val onFrame: (String) -> Unit,
+    private val onCapture: () -> Unit,
     private val onEnd: () -> Unit
 ) {
     private val thread = HandlerThread("osone-screen").apply { start() }
@@ -60,6 +61,7 @@ class ScreenCaptureController(
                 val now = System.currentTimeMillis()
                 if (!closed && now - lastFrame >= 1000) {
                     lastFrame = now
+                    onCapture()
                     val plane = image.planes[0]
                     val paddedWidth = plane.rowStride / plane.pixelStride
                     val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
@@ -88,8 +90,10 @@ class ScreenCaptureController(
         if (resize && display != null) {
             display?.resize(w, h, density)
             display?.surface = newReader.surface
-        } else display = projection?.createVirtualDisplay("OSONE-tela", w, h, density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, newReader.surface, null, handler)
+        } else display = requireNotNull(projection?.createVirtualDisplay("OSONE-tela", w, h, density,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, newReader.surface, null, handler)) {
+            "A projeção não criou a superfície de captura"
+        }
         oldReader?.close()
     }
 
