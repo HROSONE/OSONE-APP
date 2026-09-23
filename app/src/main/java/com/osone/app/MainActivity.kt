@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun openLive() {
         permissionError = false
         showLive = true
-        volumeControlStream = AudioManager.STREAM_VOICE_CALL
+        volumeControlStream = AudioManager.STREAM_MUSIC
         if (live.active == null) LiveSessionService.command(this, LiveSessionService.START)
     }
 
@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         showLive = live.active != null
         bubblePermission = Settings.canDrawOverlays(this)
         accessibilityEnabled = OsoneAccessibilityService.active != null
-        volumeControlStream = if (showLive) AudioManager.STREAM_VOICE_CALL else AudioManager.STREAM_MUSIC
+        volumeControlStream = AudioManager.STREAM_MUSIC
         darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
         setContent {

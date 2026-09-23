@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
@@ -18,7 +19,13 @@ class OsoneAccessibilityService : AccessibilityService() {
     }
 
     override fun onServiceConnected() { active = this }
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    private var lastWindowUpdate = 0L
+    private var lastAction = 0L
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event?.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+            lastWindowUpdate = SystemClock.uptimeMillis()
+    }
     override fun onInterrupt() = Unit
     override fun onDestroy() { if (active === this) active = null; super.onDestroy() }
 
@@ -42,6 +49,16 @@ class OsoneAccessibilityService : AccessibilityService() {
         }
         return JSONObject().put("app", root.packageName?.toString() ?: "desconhecido")
             .put("controles", nodes).put("limite", nodes.length() == 120)
+            .put("atualizado_ha_ms", if (lastWindowUpdate > 0) SystemClock.uptimeMillis() - lastWindowUpdate else -1)
+    }
+
+    fun checkUi(expected: String): JSONObject {
+        if (expected.isBlank()) return error("Informe o texto esperado na tela.")
+        val root = rootInActiveWindow ?: return error("Sem janela acessível para verificar.")
+        return JSONObject().put("app", root.packageName?.toString() ?: "desconhecido")
+            .put("texto", expected.take(120)).put("encontrado", find(expected) != null)
+            .put("tela_mudou_apos_acao", lastWindowUpdate > lastAction)
+            .put("atualizado_ha_ms", if (lastWindowUpdate > 0) SystemClock.uptimeMillis() - lastWindowUpdate else -1)
     }
 
     fun interact(label: String, action: String): JSONObject {
@@ -54,6 +71,7 @@ class OsoneAccessibilityService : AccessibilityService() {
         var candidate: AccessibilityNodeInfo? = node
         while (candidate != null && !candidate.isClickable && action == "tocar") candidate = candidate.parent
         val target = candidate ?: node
+        lastAction = SystemClock.uptimeMillis()
         return JSONObject().put("aceito_pelo_android", target.performAction(flag))
     }
 
@@ -63,6 +81,7 @@ class OsoneAccessibilityService : AccessibilityService() {
             else find(label)
         if (node?.isEditable != true) return error("Campo editável não encontrado. Inspecione a tela.")
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+        lastAction = SystemClock.uptimeMillis()
         return JSONObject().put("aceito_pelo_android", node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args))
     }
 
@@ -74,8 +93,10 @@ class OsoneAccessibilityService : AccessibilityService() {
             val node = queue.removeFirst()
             val action = if (direction == "cima") AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
                 else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-            if (node.isVisibleToUser && node.isScrollable && node.performAction(action))
+            if (node.isVisibleToUser && node.isScrollable && node.performAction(action)) {
+                lastAction = SystemClock.uptimeMillis()
                 return JSONObject().put("aceito_pelo_android", true)
+            }
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
         return error("Nenhuma área rolável disponível; tente um gesto na tela.")
@@ -87,8 +108,10 @@ class OsoneAccessibilityService : AccessibilityService() {
             "inicio" -> GLOBAL_ACTION_HOME
             "recentes" -> GLOBAL_ACTION_RECENTS
             "notificacoes" -> GLOBAL_ACTION_NOTIFICATIONS
+            "atalhos", "ajustes_rapidos" -> GLOBAL_ACTION_QUICK_SETTINGS
             else -> return error("Navegação desconhecida.")
         }
+        lastAction = SystemClock.uptimeMillis()
         return JSONObject().put("aceito_pelo_android", performGlobalAction(global))
     }
 
@@ -102,6 +125,7 @@ class OsoneAccessibilityService : AccessibilityService() {
             lineTo(endX.toFloat(), endY.toFloat()) }
         val swipe = endX != null && endY != null
         val stroke = GestureDescription.StrokeDescription(path, 0, if (swipe) 420 else 70)
+        lastAction = SystemClock.uptimeMillis()
         val accepted = dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
         return JSONObject().put("gesto_aceito", accepted).put("concluido", "Ainda não confirmado; inspecione a tela.")
     }
