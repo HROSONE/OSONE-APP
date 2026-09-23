@@ -45,6 +45,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val viewModel: OsoneViewModel by viewModels()
     private val live by lazy { LiveSession.get(application) }
     private val writing by lazy { WritingWorkspace.get(application) }
+    private val updater by lazy { AppUpdater(this) }
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
     private var showWriting by mutableStateOf(false)
@@ -75,6 +77,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
     private val pickFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.attach(uri)
+    }
+    private val pickUpdateApk = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) lifecycleScope.launch { updater.chooseApk(uri) }
     }
 
     private fun openLive() {
@@ -122,11 +127,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             volumeControlStream = AudioManager.STREAM_MUSIC },
                         onDiagnostics = { showDiagnostics = true }, onBack = { showLive = false;
                             volumeControlStream = AudioManager.STREAM_MUSIC })
-                    else if (showSettings) SettingsScreen(viewModel, live, darkMode,
+                    else if (showSettings) SettingsScreen(viewModel, live, updater, darkMode,
                         onDarkMode = { enabled ->
                             darkMode = enabled
                             getSharedPreferences("osone_config", 0).edit().putBoolean("dark_mode", enabled).apply()
-                        }, onBack = { showSettings = false }, diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
+                        }, onBack = { showSettings = false },
+                        onPickUpdate = { pickUpdateApk.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
+                        diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
                     else if (showWriting) WritingScreen(writing, live, diagnostics,
                         onDiagnostics = { showDiagnostics = true },
                         onBack = { showWriting = false },
@@ -158,6 +165,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onResume()
         bubblePermission = Settings.canDrawOverlays(this)
         accessibilityEnabled = OsoneAccessibilityService.active != null
+        updater.resumeAfterPermission()
         if (overlayRequested && bubblePermission && live.active != null)
             LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
         overlayRequested = false
@@ -338,14 +346,34 @@ private fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
 }
 
 @Composable
-private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, darkMode: Boolean,
-    onDarkMode: (Boolean) -> Unit, onBack: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit) {
+private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, updater: AppUpdater,
+    darkMode: Boolean, onDarkMode: (Boolean) -> Unit, onBack: () -> Unit,
+    onPickUpdate: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit) {
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("← Conversa") }
             DiagnosticsDot(diagnostics, onDiagnostics)
         }
         Text("Configurações", style = MaterialTheme.typography.headlineMedium)
+        Text("Atualizações", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(value = updater.feedUrl, onValueChange = updater::setFeedUrl,
+            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            label = { Text("Canal HTTPS de atualizações (latest.json)") })
+        Button(onClick = { scope.launch { updater.check() } }, enabled = !updater.busy) {
+            Text("Procurar atualização")
+        }
+        updater.available?.let { release ->
+            Text("Versão ${release.versionName} disponível. ${release.notes}")
+            Button(onClick = { scope.launch { updater.downloadAndInstall() } }, enabled = !updater.busy) {
+                Text("Baixar e instalar atualização")
+            }
+        }
+        OutlinedButton(onClick = onPickUpdate, enabled = !updater.busy) { Text("Escolher APK já baixado") }
+        Text(updater.status, style = MaterialTheme.typography.bodySmall)
+        Text("O Android só atualiza um app se o APK novo tiver o mesmo identificador e assinatura. A instalação pede sua confirmação.",
+            style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Modo noturno", modifier = Modifier.weight(1f))
             Switch(checked = darkMode, onCheckedChange = onDarkMode)

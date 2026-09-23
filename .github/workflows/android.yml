@@ -1,4 +1,4 @@
-name: Android Debug
+name: Android
 on:
   push:
   pull_request:
@@ -22,7 +22,27 @@ jobs:
           gradle-version: '8.13'
       - name: Testar e compilar APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Compilar APK com assinatura permanente
+        env:
+          OSTIE_SIGNING_KEYSTORE_BASE64: ${{ secrets.OSTIE_SIGNING_KEYSTORE_BASE64 }}
+          OSTIE_SIGNING_PASSWORD: ${{ secrets.OSTIE_SIGNING_PASSWORD }}
+          OSTIE_SIGNING_ALIAS: ${{ secrets.OSTIE_SIGNING_ALIAS }}
+        run: |
+          if [ -z "$OSTIE_SIGNING_KEYSTORE_BASE64" ] || [ -z "$OSTIE_SIGNING_PASSWORD" ] || [ -z "$OSTIE_SIGNING_ALIAS" ]; then
+            echo 'Assinatura permanente não configurada; consulte docs/ATUALIZACOES.md.'
+            exit 0
+          fi
+          export OSTIE_SIGNING_KEYSTORE_FILE="$RUNNER_TEMP/ostie.jks"
+          trap 'rm -f "$OSTIE_SIGNING_KEYSTORE_FILE"' EXIT
+          printf '%s' "$OSTIE_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$OSTIE_SIGNING_KEYSTORE_FILE"
+          chmod 600 "$OSTIE_SIGNING_KEYSTORE_FILE"
+          gradle :app:assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: osone-app-debug
+          name: ostie-release-assinado
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ostie-debug-assinatura-temporaria
           path: app/build/outputs/apk/debug/*.apk

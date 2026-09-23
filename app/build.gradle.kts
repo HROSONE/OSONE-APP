@@ -12,11 +12,26 @@ android {
         applicationId = "com.osone.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.12.0"
+        versionCode = 13
+        versionName = "0.13.0"
+    }
+    signingConfigs {
+        create("stable") {
+            val keystorePath = System.getenv("OSTIE_SIGNING_KEYSTORE_FILE")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("OSTIE_SIGNING_PASSWORD")
+                keyAlias = System.getenv("OSTIE_SIGNING_ALIAS") ?: "ostie"
+                keyPassword = System.getenv("OSTIE_SIGNING_PASSWORD")
+            }
+        }
     }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            if (!System.getenv("OSTIE_SIGNING_KEYSTORE_FILE").isNullOrBlank())
+                signingConfig = signingConfigs.getByName("stable")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -35,6 +50,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.1")
+    implementation("androidx.core:core-ktx:1.16.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
     testImplementation("junit:junit:4.13.2")
