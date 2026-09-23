@@ -147,7 +147,7 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
         LiveModelPicker(live)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
-            Switch(checked = live.fallback, onCheckedChange = live::setFallback)
+            Switch(checked = live.fallback, onCheckedChange = live::updateFallback)
         }
         TextButton(onClick = viewModel::removeKey) { Text("Remover chave deste aparelho") }
         HorizontalDivider()
@@ -192,7 +192,10 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Fallback automático")
             Spacer(Modifier.width(12.dp))
-            Switch(checked = live.fallback, onCheckedChange = live::setFallback)
+            Switch(checked = live.fallback, onCheckedChange = {
+                live.updateFallback(it)
+                if (live.active != null) live.start()
+            })
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             VoiceOrb(live.inputLevel, live.outputLevel, live.connected)

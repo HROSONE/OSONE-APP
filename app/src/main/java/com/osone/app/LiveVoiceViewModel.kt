@@ -3,7 +3,6 @@ package com.osone.app
 import android.app.Application
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -58,7 +57,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         preferences.edit().putString("live_model", model.id).apply()
     }
 
-    fun setFallback(enabled: Boolean) {
+    fun updateFallback(enabled: Boolean) {
         fallback = enabled
         preferences.edit().putBoolean("live_fallback", enabled).apply()
     }
