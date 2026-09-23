@@ -38,7 +38,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -67,6 +69,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val diagnostics by lazy { AppDiagnostics.get(applicationContext) }
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openLive() else { permissionError = true; diagnostics.record("Permissão", "Acesso ao microfone negado.") }
+    }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && live.active != null) LiveSessionService.command(this, LiveSessionService.CAMERA_START)
+        else if (!granted) diagnostics.record("Permissão", "Acesso à câmera negado.")
     }
     private val screenPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null)
@@ -122,6 +128,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             val manager = getSystemService(MediaProjectionManager::class.java)
                             screenPermission.launch(manager.createScreenCaptureIntent())
                         },
+                        onCameraToggle = {
+                            if (live.cameraSharing) LiveSessionService.command(this, LiveSessionService.CAMERA_STOP)
+                            else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+                                LiveSessionService.command(this, LiveSessionService.CAMERA_START)
+                            else cameraPermission.launch(Manifest.permission.CAMERA)
+                        },
+                        onCameraSwitch = { LiveSessionService.command(this, LiveSessionService.CAMERA_SWITCH) },
                         onStopScreen = { LiveSessionService.command(this, LiveSessionService.SCREEN_STOP) },
                         onEnd = { LiveSessionService.command(this, LiveSessionService.STOP); showLive = false;
                             volumeControlStream = AudioManager.STREAM_MUSIC },
@@ -550,22 +563,33 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
     accessibilityEnabled: Boolean, onAccessibility: () -> Unit,
     onWriting: () -> Unit,
     onOverlay: () -> Unit, onShareScreen: () -> Unit, onStopScreen: () -> Unit,
+    onCameraToggle: () -> Unit, onCameraSwitch: () -> Unit,
     onEnd: () -> Unit, onDiagnostics: () -> Unit, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var clock by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(live.screenSharing) {
+    LaunchedEffect(live.screenSharing, live.cameraSharing) {
         val started = System.currentTimeMillis()
-        var warned = false
-        while (live.screenSharing) {
+        var screenWarned = false
+        var cameraWarned = false
+        while (live.screenSharing || live.cameraSharing) {
             clock = System.currentTimeMillis()
-            val stalled = live.connected && clock - maxOf(started, live.lastScreenFrameAt) > 6000
-            if (stalled && !warned) {
+            val stalled = live.screenSharing && live.connected && clock - maxOf(started, live.lastScreenFrameAt) > 6000
+            if (stalled && !screenWarned) {
                 diagnostics.record("Tela Live", if (live.screenFramesCaptured == 0)
                     "Projeção autorizada, mas o Android não forneceu imagens ao capturador."
                     else "O Android gerou imagens, mas nenhuma foi enviada à conexão Live. Capturadas: ${live.screenFramesCaptured}; descartadas: ${live.screenFramesSkipped}.")
-                warned = true
+                screenWarned = true
             }
-            if (!stalled) warned = false
+            if (!stalled) screenWarned = false
+            val cameraStalled = live.cameraSharing && live.connected &&
+                clock - maxOf(started, live.lastCameraFrameAt) > 6000
+            if (cameraStalled && !cameraWarned) {
+                diagnostics.record("Câmera Live", if (live.cameraFramesCaptured == 0)
+                    "Câmera ativa, mas nenhum quadro foi capturado." else
+                    "Imagens da câmera capturadas, mas não enviadas. Capturadas: ${live.cameraFramesCaptured}; descartadas: ${live.cameraFramesSkipped}.")
+                cameraWarned = true
+            }
+            if (!cameraStalled) cameraWarned = false
             delay(1000)
         }
     }
@@ -600,7 +624,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
-        Text(if (live.localToolsAvailable) "Agente Android: abre apps e consulta bateria. Com Acessibilidade, lê e usa controles dos apps."
+        Text(if (live.localToolsAvailable) "Agente Android: abre apps e Configurações, ajusta mídia e usa controles dos apps com Acessibilidade."
             else "Este modelo aceitou somente voz; ações locais indisponíveis nesta sessão.",
             style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = onAccessibility) {
@@ -613,6 +637,27 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bu
         OutlinedButton(onClick = if (live.screenSharing) onStopScreen else onShareScreen,
             enabled = live.active != null) {
             Text(if (live.screenSharing) "Parar de mostrar tela" else "Mostrar tela ao OSTIE")
+        }
+        OutlinedButton(onClick = onCameraToggle, enabled = live.active != null) {
+            Text(if (live.cameraSharing) "Parar câmera" else "Mostrar câmera ao OSTIE")
+        }
+        if (live.cameraSharing) {
+            OutlinedButton(onClick = onCameraSwitch) {
+                Text(if (live.cameraFront) "Usar câmera traseira" else "Usar câmera frontal")
+            }
+            live.cameraPreview?.let { preview ->
+                Image(bitmap = preview.asImageBitmap(), contentDescription = "Imagem atual da câmera",
+                    modifier = Modifier.fillMaxWidth().height(170.dp), contentScale = ContentScale.Fit)
+            }
+            val cameraAge = if (live.lastCameraFrameAt == 0L) Long.MAX_VALUE else clock - live.lastCameraFrameAt
+            Text(if (!live.connected) "Câmera ligada; aguardando a conexão Live."
+                else if (cameraAge > 3500) "Câmera ligada, mas nenhum quadro recente foi enviado. Veja o diagnóstico."
+                else "Câmera ativa · ${live.cameraFramesCaptured} capturados · ${live.cameraFramesSent} enviados · último há ${maxOf(0L, cameraAge) / 1000} s" +
+                    if (live.cameraFramesSkipped > 0) " · ${live.cameraFramesSkipped} descartados" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (live.connected && cameraAge > 3500) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            Text("Fale sobre o que a câmera mostra; até 1 imagem por segundo chega ao Gemini Live.",
+                style = MaterialTheme.typography.bodySmall)
         }
         if (live.screenSharing) {
             val age = if (live.lastScreenFrameAt == 0L) Long.MAX_VALUE

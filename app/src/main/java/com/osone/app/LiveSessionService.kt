@@ -31,6 +31,7 @@ class LiveSessionService : Service() {
     private val windows by lazy { getSystemService(WindowManager::class.java) }
     private var bubble: View? = null
     private var projection: ScreenCaptureController? = null
+    private var camera: LiveCameraController? = null
     private var foreground = false
     private var overlayExpanded = false
     private val monitor = Handler(Looper.getMainLooper())
@@ -69,9 +70,13 @@ class LiveSessionService : Service() {
                 MUTE -> if (live.active != null) live.toggleMute()
                 OVERLAY_ON -> if (foreground && Settings.canDrawOverlays(this)) showBubble()
                 OVERLAY_OFF -> removeBubble()
+                CAMERA_START -> startCamera(false)
+                CAMERA_SWITCH -> startCamera(!live.cameraFront)
+                CAMERA_STOP -> stopCamera()
                 SCREEN_START -> {
                     val data = readScreenResult(intent)
                     if (data != null && intent.getIntExtra(SCREEN_RESULT, 0) == android.app.Activity.RESULT_OK && foreground) {
+                        stopCamera()
                         stopProjection()
                         showForeground(true)
                         // O primeiro quadro pode chegar antes de start() retornar.
@@ -88,6 +93,7 @@ class LiveSessionService : Service() {
         } catch (failure: Exception) {
             diagnostics.record("Serviço Live", "${failure.javaClass.simpleName} em ${intent?.action?.substringAfterLast('.') ?: "comando"}.")
             if (intent?.action == SCREEN_START) stopProjection()
+            if (intent?.action == CAMERA_START || intent?.action == CAMERA_SWITCH) stopCamera()
             if (!foreground) stopSelf()
         }
         return START_NOT_STICKY
@@ -98,16 +104,17 @@ class LiveSessionService : Service() {
         intent.getParcelableExtra(SCREEN_DATA, Intent::class.java)
     else intent.getParcelableExtra(SCREEN_DATA)
 
-    private fun showForeground(sharing: Boolean) {
+    private fun showForeground(sharing: Boolean, showingCamera: Boolean = false) {
         val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
-            (if (sharing) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0)
-        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(sharing), type)
-        else startForeground(NOTIFICATION, notification(sharing))
+            (if (sharing) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0) or
+            (if (showingCamera) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)
+        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(sharing, showingCamera), type)
+        else startForeground(NOTIFICATION, notification(sharing, showingCamera))
         foreground = true
     }
 
-    private fun notification(sharing: Boolean): Notification {
+    private fun notification(sharing: Boolean, showingCamera: Boolean): Notification {
         val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -115,7 +122,8 @@ class LiveSessionService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(if (sharing) "OSTIE · voz e tela ativas" else "OSTIE · voz ativa")
+            .setContentTitle(if (showingCamera) "OSTIE · voz e câmera ativas"
+                else if (sharing) "OSTIE · voz e tela ativas" else "OSTIE · voz ativa")
             .setContentText("Toque para voltar à conversa. Encerrar para desligar o microfone.")
             .setContentIntent(open).setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Encerrar", close).build()
@@ -199,11 +207,45 @@ class LiveSessionService : Service() {
         if (foreground) showForeground(false)
     }
 
+    private fun startCamera(front: Boolean) {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            diagnostics.record("Câmera Live", "A permissão da câmera precisa ser concedida no app.")
+            return
+        }
+        stopProjection()
+        stopCamera()
+        showForeground(false, true)
+        live.cameraSharing = true
+        live.cameraFront = front
+        live.resetCameraCounters()
+        lateinit var controller: LiveCameraController
+        controller = LiveCameraController(this, front, onFrame = live::sendCameraFrame,
+            onError = { detail -> monitor.post {
+                if (camera === controller) {
+                    diagnostics.record("Câmera Live", detail)
+                    stopCamera()
+                }
+            } })
+        camera = controller
+        controller.start()
+    }
+
+    private fun stopCamera() {
+        val old = camera
+        camera = null
+        old?.stop()
+        live.cameraSharing = false
+        live.clearCameraPreview()
+        if (foreground) showForeground(projection != null)
+    }
+
     override fun onDestroy() {
         foreground = false
         monitor.removeCallbacks(monitorSession)
         projection?.stop(); projection = null
         live.screenSharing = false
+        stopCamera()
         removeBubble()
         live.stop()
         super.onDestroy()
@@ -221,6 +263,9 @@ class LiveSessionService : Service() {
         const val OVERLAY_OFF = "com.osone.app.OVERLAY_OFF"
         const val SCREEN_START = "com.osone.app.SCREEN_START"
         const val SCREEN_STOP = "com.osone.app.SCREEN_STOP"
+        const val CAMERA_START = "com.osone.app.CAMERA_START"
+        const val CAMERA_STOP = "com.osone.app.CAMERA_STOP"
+        const val CAMERA_SWITCH = "com.osone.app.CAMERA_SWITCH"
         const val SCREEN_DATA = "screen_data"
         const val SCREEN_RESULT = "screen_result"
         fun command(context: Context, action: String, configure: (Intent.() -> Unit)? = null) {

@@ -1,8 +1,11 @@
 package com.osone.app
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -58,6 +61,18 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     var screenFramesSkipped by mutableStateOf(0)
         private set
     var lastScreenFrameAt by mutableStateOf(0L)
+        private set
+    var cameraSharing by mutableStateOf(false)
+    var cameraFront by mutableStateOf(false)
+    var cameraPreview by mutableStateOf<Bitmap?>(null)
+        private set
+    var cameraFramesCaptured by mutableStateOf(0)
+        private set
+    var cameraFramesSent by mutableStateOf(0)
+        private set
+    var cameraFramesSkipped by mutableStateOf(0)
+        private set
+    var lastCameraFrameAt by mutableStateOf(0L)
         private set
     var localToolsAvailable by mutableStateOf(true)
         private set
@@ -120,6 +135,43 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun screenFrameCaptured() { main.post { screenFramesCaptured++ } }
 
+    fun resetCameraCounters() {
+        cameraFramesCaptured = 0
+        cameraFramesSent = 0
+        cameraFramesSkipped = 0
+        lastCameraFrameAt = 0L
+    }
+
+    fun clearCameraPreview() { cameraPreview = null }
+
+    /** O JPEG mais recente aparece no app; o envio usa a mesma conexão da voz, sem fila de vídeo. */
+    fun sendCameraFrame(jpeg: ByteArray, capturedAt: Long) {
+        if (!cameraSharing) return
+        val image = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+        main.post {
+            if (cameraSharing) {
+                cameraFramesCaptured++
+                if (image != null) cameraPreview = image
+            }
+        }
+        val current = socket
+        if (!ready || current == null) return
+        if (System.currentTimeMillis() - capturedAt > 1500 || current.queueSize() > 32_000L) {
+            main.post { cameraFramesSkipped++ }
+            if (System.currentTimeMillis() - lastBackpressure > 5000) {
+                lastBackpressure = System.currentTimeMillis()
+                diagnostics.record("Câmera Live", "Quadro descartado: a conexão está ocupada com áudio.")
+            }
+            return
+        }
+        val sent = current.send(JSONObject().put("realtimeInput", JSONObject().put("video", JSONObject()
+            .put("mimeType", "image/jpeg").put("data", Base64.encodeToString(jpeg, Base64.NO_WRAP)))).toString())
+        main.post {
+            if (sent) { cameraFramesSent++; lastCameraFrameAt = System.currentTimeMillis() }
+            else cameraFramesSkipped++
+        }
+    }
+
     /** Um quadro JPEG por segundo; se a conexão atrasar, nunca enfileira imagens antigas. */
     fun sendScreenFrame(encodedJpeg: String, capturedAt: Long) {
         val current = socket
@@ -180,7 +232,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("generationConfig", generation)
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir para produzir um texto escrito ou código para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Para HTML, envie HTML completo e formato html. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
+                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir para produzir um texto escrito ou código para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Para HTML, envie HTML completo e formato html. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando Henrique liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou.")))))
                     if (localToolsAvailable) setup.getJSONObject("setup")
                         .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations().put(writeDocumentDeclaration()))))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
