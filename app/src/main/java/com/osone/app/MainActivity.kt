@@ -267,7 +267,7 @@ private fun OpenRouterModelField(viewModel: OsoneViewModel) {
     var draft by remember { mutableStateOf(viewModel.openRouterModel) }
     OutlinedTextField(value = draft, onValueChange = { draft = it }, singleLine = true,
         modifier = Modifier.fillMaxWidth(), label = { Text("ID do modelo OpenRouter") })
-    Button(onClick = { viewModel.setOpenRouterModel(draft); draft = viewModel.openRouterModel }) { Text("Salvar modelo") }
+    Button(onClick = { viewModel.updateOpenRouterModel(draft); draft = viewModel.openRouterModel }) { Text("Salvar modelo") }
     Text("openrouter/free é o padrão gratuito e escolhe um modelo disponível. Você pode informar outro ID; confira preços e acesso no OpenRouter.",
         style = MaterialTheme.typography.bodySmall)
 }
@@ -368,7 +368,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         Text("Volume da voz: ${(live.gain * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
-        Slider(value = live.gain, onValueChange = live::setGain, valueRange = 0.5f..2f, steps = 14)
+        Slider(value = live.gain, onValueChange = live::updateGain, valueRange = 0.5f..2f, steps = 14)
         Text("Os botões de volume do celular controlam a mídia.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

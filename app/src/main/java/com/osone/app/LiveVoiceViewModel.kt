@@ -74,7 +74,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (running) start() // A voz pertence à configuração inicial de cada sessão.
     }
 
-    fun setGain(value: Float) {
+    fun updateGain(value: Float) {
         gain = value.coerceIn(0.5f, 2f)
         preferences.edit().putFloat("live_gain", gain).apply()
         audio?.outputGain = gain

@@ -71,7 +71,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         settings.edit().putString("groq_model", value.id).apply()
     }
 
-    fun setOpenRouterModel(value: String) {
+    fun updateOpenRouterModel(value: String) {
         openRouterModel = value.trim().take(120).ifEmpty { "openrouter/free" }
         settings.edit().putString("openrouter_model", openRouterModel).apply()
     }
