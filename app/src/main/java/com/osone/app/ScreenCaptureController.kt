@@ -48,7 +48,8 @@ class ScreenCaptureController(
 
     private fun configure(width: Int, height: Int, resize: Boolean) {
         if (closed) return
-        val scale = minOf(1.0, 1024.0 / maxOf(width, height))
+        // Preserve texto pequeno: uma tela 1080x2400 ficava ilegível em 461x1024.
+        val scale = minOf(1.0, 1600.0 / maxOf(width, height))
         val w = maxOf(2, (width * scale).toInt())
         val h = maxOf(2, (height * scale).toInt())
         val oldReader = reader
@@ -69,7 +70,11 @@ class ScreenCaptureController(
                     padded.copyPixelsFromBuffer(bytes)
                     val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
                     ByteArrayOutputStream().use { stream ->
-                        cropped.compress(Bitmap.CompressFormat.JPEG, 65, stream)
+                        cropped.compress(Bitmap.CompressFormat.JPEG, 50, stream)
+                        if (stream.size() > 90_000) {
+                            stream.reset()
+                            cropped.compress(Bitmap.CompressFormat.JPEG, 32, stream)
+                        }
                         onFrame(Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP))
                     }
                     cropped.recycle(); padded.recycle()

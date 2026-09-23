@@ -151,6 +151,7 @@ class LiveSessionService : Service() {
             overlayExpanded = false; actions.visibility = View.GONE; updateBubbleSize(root)
         }
         action("Silenciar / ativar") { live.toggleMute() }
+        action("Analisar tela agora") { live.describeScreen() }
         action("Encerrar conversa") { stopSelf() }
         root.addView(actions)
         val params = WindowManager.LayoutParams(dp(56), dp(56), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
