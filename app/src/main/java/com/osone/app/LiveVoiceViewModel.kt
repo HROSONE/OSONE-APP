@@ -29,6 +29,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private val diagnostics = AppDiagnostics.get(application)
     private val localTools = AndroidLocalTools(application)
     private val writing = WritingWorkspace.get(application)
+    private val codeAuthor = CodeAuthor.get(application)
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -241,9 +242,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("generationConfig", generation)
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir para produzir um texto escrito ou código para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando Henrique liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou.")))))
+                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando Henrique liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou.")))))
                     if (localToolsAvailable) setup.getJSONObject("setup")
-                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations().put(writeDocumentDeclaration()))))
+                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations()
+                            .put(writeDocumentDeclaration()).put(requestCodeDeclaration()))))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
                 }
             }
@@ -325,6 +327,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         message.optJSONObject("toolCall")?.let { call ->
             main.post { if (running && socket === webSocket) handleToolCall(webSocket, call) }
         }
+        message.optJSONObject("toolCallCancellation")?.optJSONArray("ids")?.let { ids ->
+            val cancelled = (0 until ids.length()).map { ids.optString(it) }.toSet()
+            main.post { codeAuthor.cancelCall(cancelled) }
+        }
         if (message.has("setupComplete") || message.has("goAway") || message.has("error")) {
             main.post { if (running && socket === webSocket) handleControl(webSocket, message) }
         }
@@ -337,14 +343,40 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             val action = calls.optJSONObject(index) ?: continue
             val name = action.optString("name")
             val args = action.optJSONObject("args") ?: JSONObject()
+            val id = if (action.has("id")) action.optString("id") else null
+            if (name == "request_code") {
+                // Responde só depois que Henrique escolher quem escreve o código.
+                codeAuthor.request(id, args) { answer -> sendToolResponse(ws, name, id, answer) }
+                continue
+            }
             val answer = if (name == "write_document") writing.publish(args) else localTools.execute(name, args)
             val response = JSONObject().put("name", name).put("response", JSONObject().put("result", answer))
-            if (action.has("id")) response.put("id", action.optString("id"))
+            if (id != null) response.put("id", id)
             responses.put(response)
         }
         if (responses.length() > 0 && socket === ws && running)
             ws.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
     }
+
+    private fun sendToolResponse(ws: WebSocket, name: String, id: String?, answer: JSONObject) {
+        val response = JSONObject().put("name", name).put("response", JSONObject().put("result", answer))
+        if (id != null) response.put("id", id)
+        main.post {
+            if (running && socket === ws)
+                ws.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", JSONArray().put(response))).toString())
+        }
+    }
+
+    private fun requestCodeDeclaration(): JSONObject = JSONObject()
+        .put("name", "request_code")
+        .put("description", "Chame antes de escrever qualquer código, HTML, SVG, página, jogo ou app. O app pergunta a Henrique se o código deve ser escrito por você (modelo de voz) ou pelo modelo de texto, e o resultado diz o que fazer em seguida.")
+        .put("parameters", JSONObject().put("type", "OBJECT")
+            .put("properties", JSONObject()
+                .put("titulo", JSONObject().put("type", "STRING").put("description", "Título curto do documento"))
+                .put("pedido", JSONObject().put("type", "STRING").put("description", "Descrição completa e detalhada do que Henrique pediu: objetivo, funcionalidades, estilo, cores, textos e restrições"))
+                .put("formato", JSONObject().put("type", "STRING").put("description", "html, svg ou o nome da linguagem de programação"))
+                .put("operacao", JSONObject().put("type", "STRING").put("description", "novo para criar do zero, alterar para modificar o documento atual da Aba de Escrita")))
+            .put("required", JSONArray().put("titulo").put("pedido").put("formato")))
 
     private fun writeDocumentDeclaration(): JSONObject = JSONObject()
         .put("name", "write_document")

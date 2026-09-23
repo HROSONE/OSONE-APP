@@ -11,11 +11,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
-fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
+fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel, codeAuthor: CodeAuthor,
     diagnostics: AppDiagnostics, onDiagnostics: () -> Unit, onBack: () -> Unit, onLive: () -> Unit) {
     val context = LocalContext.current
     var preview by remember { mutableStateOf<String?>(null) }
@@ -59,9 +60,30 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel,
         if (live.connected && !live.localToolsAvailable) Text("Este modelo desativou as ferramentas; tente outro modelo Live.",
             color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 16.dp))
+        codeAuthor.lastError?.let {
+            Text("Modelo de texto: $it", color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
+        }
+        val author = codeAuthor.writingWith
+        if (author != null) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Escrevendo com $author…", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+                }
+                BarIcon(OstieIcons.Close, "Cancelar geração", codeAuthor::cancelGeneration)
+            }
+        }
         Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
             val current = preview
-            if (current != null) {
+            if (author != null) {
+                // Mostra o código chegando; o documento só é substituído quando termina.
+                OutlinedTextField(value = codeAuthor.draft, onValueChange = {}, readOnly = true,
+                    modifier = Modifier.fillMaxSize(), shape = MaterialTheme.shapes.large,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    placeholder = { Text("Aguardando o primeiro trecho do código…") })
+            } else if (current != null) {
                 Surface(shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxSize()) {
                     AndroidView(factory = { activity -> WebView(activity).apply {
                         settings.javaScriptEnabled = true

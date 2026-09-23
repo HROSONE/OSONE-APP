@@ -30,7 +30,7 @@ import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bubblePermission: Boolean,
+fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: AppDiagnostics, bubblePermission: Boolean,
     accessibilityEnabled: Boolean, onAccessibility: () -> Unit,
     onWriting: () -> Unit,
     onOverlay: () -> Unit, onShareScreen: () -> Unit, onStopScreen: () -> Unit,
@@ -112,7 +112,7 @@ fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bubblePerm
         ModalBottomSheet(onDismissRequest = { showPanel = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = colors.surfaceContainerLow) {
-            LivePanel(live, session, bubblePermission, accessibilityEnabled,
+            LivePanel(live, codeAuthor, session, bubblePermission, accessibilityEnabled,
                 onWriting = { showPanel = false; onWriting() },
                 onOverlay = { showPanel = false; onOverlay() },
                 onAccessibility = { showPanel = false; onAccessibility() })
@@ -205,7 +205,7 @@ private fun CameraPip(live: LiveVoiceViewModel, onSwitch: () -> Unit, modifier: 
 }
 
 @Composable
-private fun LivePanel(live: LiveVoiceViewModel, session: Boolean, bubblePermission: Boolean,
+private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, session: Boolean, bubblePermission: Boolean,
     accessibilityEnabled: Boolean, onWriting: () -> Unit, onOverlay: () -> Unit, onAccessibility: () -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
         .padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -218,6 +218,7 @@ private fun LivePanel(live: LiveVoiceViewModel, session: Boolean, bubblePermissi
         })
         SettingSwitch("Proteção de eco", live.echoGuard, live::updateEchoGuard,
             "No alto-falante, impede que a voz do OSTIE interrompa a si mesma. Fale mais alto para interromper. Com fones, fica desligada sozinha.")
+        CodeAuthorPicker(codeAuthor)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text("Ferramentas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         PanelRow(OstieIcons.Document, "Aba de Escrita", "Textos e códigos pedidos por voz", onWriting)

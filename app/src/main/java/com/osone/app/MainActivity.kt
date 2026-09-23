@@ -21,6 +21,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val viewModel: OsoneViewModel by viewModels()
     private val live by lazy { LiveSession.get(application) }
     private val writing by lazy { WritingWorkspace.get(application) }
+    private val codeAuthor by lazy { CodeAuthor.get(application) }
     private val updater by lazy { AppUpdater(this) }
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
@@ -91,9 +93,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
             var showDiagnostics by remember { mutableStateOf(false) }
+            // Código pedido por voz aparece sendo escrito na Aba de Escrita, mesmo sem perguntar.
+            LaunchedEffect(codeAuthor.writingWith) {
+                if (codeAuthor.writingWith != null) { showWriting = true; showLive = false; showSettings = false }
+            }
             OstieTheme(darkMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    if (showLive) LiveScreen(live, diagnostics, bubblePermission, accessibilityEnabled,
+                    if (showLive) LiveScreen(live, codeAuthor, diagnostics, bubblePermission, accessibilityEnabled,
                         onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         onWriting = { showWriting = true; showLive = false },
                         onOverlay = {
@@ -120,7 +126,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             volumeControlStream = AudioManager.STREAM_MUSIC },
                         onDiagnostics = { showDiagnostics = true }, onBack = { showLive = false;
                             volumeControlStream = AudioManager.STREAM_MUSIC })
-                    else if (showSettings) SettingsScreen(viewModel, live, updater, darkMode,
+                    else if (showSettings) SettingsScreen(viewModel, live, codeAuthor, updater, darkMode,
                         onDarkMode = { enabled ->
                             darkMode = enabled
                             applySystemBars()
@@ -128,7 +134,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }, onBack = { showSettings = false },
                         onPickUpdate = { pickUpdateApk.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
                         diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
-                    else if (showWriting) WritingScreen(writing, live, diagnostics,
+                    else if (showWriting) WritingScreen(writing, live, codeAuthor, diagnostics,
                         onDiagnostics = { showDiagnostics = true },
                         onBack = { showWriting = false },
                         onLive = {
@@ -152,6 +158,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
                         })
                     if (showDiagnostics) DiagnosticsDialog(diagnostics, onClose = { showDiagnostics = false })
+                    codeAuthor.pending?.let { request ->
+                        CodeAuthorDialog(request, voiceLabel = if (live.connected) live.active?.label else null,
+                            textLabel = codeAuthor.textModelLabel(),
+                            onChoose = { useText, remember ->
+                                codeAuthor.choose(useText, remember)
+                                // O resultado aparece na Aba de Escrita; a voz continua ativa.
+                                showWriting = true; showLive = false; showSettings = false
+                            }, onDismiss = codeAuthor::dismiss)
+                    }
                 }
             }
         }

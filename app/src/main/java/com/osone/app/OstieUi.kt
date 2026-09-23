@@ -234,3 +234,54 @@ fun DiagnosticsDialog(diagnostics: AppDiagnostics, onClose: () -> Unit) {
         }, confirmButton = { TextButton(onClick = onClose) { Text("Fechar") } },
         dismissButton = { TextButton(onClick = diagnostics::clear) { Text("Limpar log") } })
 }
+
+/** Pergunta quem escreve o código pedido por voz: o modelo Live ou o modelo de texto do chat. */
+@Composable
+fun CodeAuthorDialog(request: CodeRequest, voiceLabel: String?, textLabel: String,
+    onChoose: (useText: Boolean, remember: Boolean) -> Unit, onDismiss: () -> Unit) {
+    var remember by remember { mutableStateOf(false) }
+    AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(OstieIcons.Document, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Qual modelo deve codar?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(request.request, style = MaterialTheme.typography.bodyMedium, maxLines = 4,
+                    overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                AuthorOption(OstieIcons.Wave, "Modelo de voz", voiceLabel ?: "Live desconectado",
+                    enabled = voiceLabel != null) { onChoose(false, remember) }
+                AuthorOption(OstieIcons.Chat, "Modelo de texto", "$textLabel · mais cuidadoso para código",
+                    enabled = true) { onChoose(true, remember) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = remember, onCheckedChange = { remember = it })
+                    Text("Lembrar minha escolha", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } })
+}
+
+@Composable
+private fun AuthorOption(icon: ImageVector, title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxSize()) {}
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f))
+                Hint(subtitle)
+            }
+        }
+    }
+}
+
+@Composable
+fun CodeAuthorPicker(author: CodeAuthor) {
+    OptionPicker("Quem escreve código pedido por voz", author.preference.label, CodeAuthorChoice.entries,
+        { it.label }, author::updatePreference)
+}

@@ -12,7 +12,7 @@ class GeminiHttpException(val status: Int) : Exception("O serviço respondeu HTT
 /** Resposta por SSE: o primeiro trecho aparece no chat sem aguardar o texto inteiro. */
 class GeminiClient {
     fun streamAnswer(key: String, model: ChatModel, history: List<ChatMessage>, mode: ThinkingMode,
-        attachment: JSONObject? = null,
+        attachment: JSONObject? = null, systemPrompt: String = DEFAULT_SYSTEM, readTimeoutMs: Int = 45_000,
         onPartial: (String) -> Unit): String {
         val contents = JSONArray()
         history.takeLast(12).forEachIndexed { index, message ->
@@ -22,8 +22,7 @@ class GeminiClient {
             contents.put(JSONObject().put("role", message.role).put("parts", parts))
         }
         val request = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text",
-                "Você é OSTIE, assistente pessoal de Henrique no Android. Responda naturalmente no idioma do usuário. Dê respostas claras, específicas e úteis; use o contexto da conversa, e apresente passos práticos quando necessários. Evite texto genérico e repetição. Seja honesto sobre incertezas. Não diga que abriu aplicativos, acessou arquivos ou usou ferramentas se não fez isso."))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
             .put("contents", contents)
         val thinking = if (model == ChatModel.GEMINI_25) JSONObject().put("thinkingBudget", when (mode) {
             ThinkingMode.FAST -> 0
@@ -36,7 +35,7 @@ class GeminiClient {
         return try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
-            connection.readTimeout = 45_000
+            connection.readTimeout = readTimeoutMs
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.setRequestProperty("Accept", "text/event-stream")
@@ -70,5 +69,9 @@ class GeminiClient {
             }
             answer.toString().trim().ifEmpty { throw IllegalStateException("O modelo não enviou resposta em texto.") }
         } finally { connection.disconnect() }
+    }
+
+    companion object {
+        const val DEFAULT_SYSTEM = "Você é OSTIE, assistente pessoal de Henrique no Android. Responda naturalmente no idioma do usuário. Dê respostas claras, específicas e úteis; use o contexto da conversa, e apresente passos práticos quando necessários. Evite texto genérico e repetição. Seja honesto sobre incertezas. Não diga que abriu aplicativos, acessou arquivos ou usou ferramentas se não fez isso."
     }
 }

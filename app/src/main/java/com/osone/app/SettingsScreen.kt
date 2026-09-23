@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, updater: AppUpdater,
+fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuthor: CodeAuthor, updater: AppUpdater,
     darkMode: Boolean, onDarkMode: (Boolean) -> Unit, onBack: () -> Unit,
     onPickUpdate: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -58,6 +58,8 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, updater:
                 SettingSwitch("Trocar de modelo se falhar", live.fallback, live::updateFallback)
                 SettingSwitch("Proteção de eco", live.echoGuard, live::updateEchoGuard,
                     "Evita que o OSTIE se interrompa pelo próprio alto-falante. Com fones, não é aplicada.")
+                CodeAuthorPicker(codeAuthor)
+                Hint("O modelo de texto é o escolhido em Chat escrito acima.")
             }
             SectionCard("Atualizações", OstieIcons.ArrowDown) {
                 OutlinedTextField(value = updater.feedUrl, onValueChange = updater::updateFeedUrl,
