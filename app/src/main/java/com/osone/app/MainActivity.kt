@@ -1,9 +1,14 @@
 package com.osone.app
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,25 +44,39 @@ import java.text.SimpleDateFormat
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val viewModel: OsoneViewModel by viewModels()
-    private val live: LiveVoiceViewModel by viewModels()
+    private val live by lazy { LiveSession.get(application) }
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
     private var permissionError by mutableStateOf(false)
     private var darkMode by mutableStateOf(false)
+    private var bubblePermission by mutableStateOf(false)
+    private var overlayRequested = false
     private val diagnostics by lazy { AppDiagnostics.get(applicationContext) }
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openLive() else { permissionError = true; diagnostics.record("Permissão", "Acesso ao microfone negado.") }
+    }
+    private val screenPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null)
+            LiveSessionService.command(this, LiveSessionService.SCREEN_START) {
+                putExtra(LiveSessionService.SCREEN_RESULT, result.resultCode)
+                putExtra(LiveSessionService.SCREEN_DATA, result.data)
+            }
+    }
+    private val pickFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.attach(uri)
     }
 
     private fun openLive() {
         permissionError = false
         showLive = true
-        live.start()
+        if (live.active == null) LiveSessionService.command(this, LiveSessionService.START)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         diagnostics.installCrashHandler()
+        showLive = live.active != null
+        bubblePermission = Settings.canDrawOverlays(this)
         volumeControlStream = AudioManager.STREAM_MUSIC
         darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
@@ -70,13 +89,28 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 primary = Color(0xFFC4AAFF), background = Color(0xFF101018), surface = Color(0xFF101018))
                 else lightColorScheme(primary = purple)) {
                 Surface(Modifier.fillMaxSize()) {
-                    if (showLive) LiveScreen(live, diagnostics, onDiagnostics = { showDiagnostics = true }, onBack = { live.stop(); showLive = false })
+                    if (showLive) LiveScreen(live, diagnostics, bubblePermission,
+                        onOverlay = {
+                            if (Settings.canDrawOverlays(this)) LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
+                            else {
+                                overlayRequested = true
+                                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:$packageName")))
+                            }
+                        },
+                        onShareScreen = {
+                            val manager = getSystemService(MediaProjectionManager::class.java)
+                            screenPermission.launch(manager.createScreenCaptureIntent())
+                        },
+                        onStopScreen = { LiveSessionService.command(this, LiveSessionService.SCREEN_STOP) },
+                        onEnd = { LiveSessionService.command(this, LiveSessionService.STOP); showLive = false },
+                        onDiagnostics = { showDiagnostics = true }, onBack = { showLive = false })
                     else if (showSettings) SettingsScreen(viewModel, live, darkMode,
                         onDarkMode = { enabled ->
                             darkMode = enabled
                             getSharedPreferences("osone_config", 0).edit().putBoolean("dark_mode", enabled).apply()
                         }, onBack = { showSettings = false }, diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
-                    else ChatScreen(viewModel, onMic = {
+                    else ChatScreen(viewModel, onAttach = { pickFile.launch(arrayOf("*/*")) }, onMic = {
                             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                                 openLive()
                             else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -94,12 +128,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) speech?.language = Locale("pt", "BR")
     }
-    override fun onStop() { live.stop(); super.onStop() }
+    override fun onResume() {
+        super.onResume()
+        bubblePermission = Settings.canDrawOverlays(this)
+        if (overlayRequested && bubblePermission && live.active != null)
+            LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
+        overlayRequested = false
+    }
     override fun onDestroy() { speech?.stop(); speech?.shutdown(); super.onDestroy() }
 }
 
 @Composable
-private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionError: Boolean,
+private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Unit, permissionError: Boolean,
     onSettings: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
     readAloud: Boolean, onReadAloud: () -> Unit,
     onAnswer: (String) -> Unit) {
@@ -156,14 +196,23 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
         if (viewModel.error != null) Text("Falha no chat · toque no indicador vermelho para ver o erro.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         if (permissionError) Text("Permita o microfone para conversar por voz.", color = MaterialTheme.colorScheme.error)
+        viewModel.attachment?.let { selected ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📎 ${selected.name} · analisado pelo Gemini", modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                TextButton(onClick = viewModel::removeAttachment) { Text("Remover") }
+            }
+        }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = draft, onValueChange = { draft = it }, label = { Text("Escreva sua mensagem") },
                 modifier = Modifier.weight(1f), maxLines = 5,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (viewModel.send(draft, onAnswer)) draft = "" }))
             Column {
+                TextButton(onClick = onAttach, enabled = !viewModel.busy) { Text("📎 Arquivo") }
                 TextButton(onClick = onMic) { Text("🎙️ Live") }
-                Button(onClick = { if (viewModel.send(draft, onAnswer)) draft = "" }, enabled = draft.isNotBlank() && !viewModel.busy) { Text("Enviar") }
+                Button(onClick = { if (viewModel.send(draft, onAnswer)) draft = "" },
+                    enabled = (draft.isNotBlank() || viewModel.attachment != null) && !viewModel.busy) { Text("Enviar") }
             }
         }
     }
@@ -209,7 +258,7 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
         Text("Voz em tempo real", style = MaterialTheme.typography.titleMedium)
         LiveModelPicker(live)
         LiveVoicePicker(live)
-        Text("Trocar de voz reinicia a chamada. Ajuste o volume pelos botões do celular.", style = MaterialTheme.typography.bodySmall)
+        Text("A voz pode continuar fora do app pela notificação e pela bolha opcional. Compartilhar a tela exige autorização do Android em cada sessão.", style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
             Switch(checked = live.fallback, onCheckedChange = live::updateFallback)
@@ -350,7 +399,10 @@ private fun LiveModelPicker(live: LiveVoiceViewModel) {
 }
 
 @Composable
-private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit, onBack: () -> Unit) {
+private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, bubblePermission: Boolean,
+    onOverlay: () -> Unit, onShareScreen: () -> Unit, onStopScreen: () -> Unit,
+    onEnd: () -> Unit, onDiagnostics: () -> Unit, onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         .verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -382,11 +434,22 @@ private fun LiveScreen(live: LiveVoiceViewModel, diagnostics: AppDiagnostics, on
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onOverlay, enabled = live.active != null) {
+            Text(if (bubblePermission) "Mostrar bolha sobre outros apps" else "Permitir bolha flutuante")
+        }
+        OutlinedButton(onClick = if (live.screenSharing) onStopScreen else onShareScreen,
+            enabled = live.active != null) {
+            Text(if (live.screenSharing) "Parar de mostrar tela" else "Mostrar tela ao OSONE")
+        }
+        if (live.screenSharing) Text("Tela compartilhada: até 1 imagem por segundo enviada ao Gemini Live.",
+            style = MaterialTheme.typography.bodySmall)
+        Text("Pode sair do app: a conversa continua até tocar em Encerrar ou na notificação.",
+            style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = live::toggleMute, enabled = live.connected) {
                 Text(if (live.muted) "Ativar microfone" else "Silenciar")
             }
-            Button(onClick = { if (live.active == null) live.start() else live.stop() }) {
+            Button(onClick = { if (live.active == null) LiveSessionService.command(context, LiveSessionService.START) else onEnd() }) {
                 Text(if (live.active == null) "Tentar novamente" else "Encerrar")
             }
         }

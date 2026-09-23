@@ -12,11 +12,14 @@ class GeminiHttpException(val status: Int) : Exception("O serviço respondeu HTT
 /** Resposta por SSE: o primeiro trecho aparece no chat sem aguardar o texto inteiro. */
 class GeminiClient {
     fun streamAnswer(key: String, model: ChatModel, history: List<ChatMessage>, mode: ThinkingMode,
+        attachment: JSONObject? = null,
         onPartial: (String) -> Unit): String {
         val contents = JSONArray()
-        history.takeLast(12).forEach { message ->
-            contents.put(JSONObject().put("role", message.role).put("parts",
-                JSONArray().put(JSONObject().put("text", message.text))))
+        history.takeLast(12).forEachIndexed { index, message ->
+            val parts = JSONArray().put(JSONObject().put("text", message.text))
+            if (attachment != null && index == history.takeLast(12).lastIndex && message.role == "user")
+                parts.put(attachment)
+            contents.put(JSONObject().put("role", message.role).put("parts", parts))
         }
         val request = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text",

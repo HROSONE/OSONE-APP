@@ -3,11 +3,14 @@ package com.osone.app
 import android.app.Application
 import android.os.Handler
 import android.os.Looper
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -54,6 +57,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     var keyStatus by androidx.compose.runtime.mutableStateOf<String?>(null)
         private set
     var keySaveError by androidx.compose.runtime.mutableStateOf(false)
+        private set
+    var attachment by androidx.compose.runtime.mutableStateOf<AttachmentRef?>(null)
         private set
     val selectedChatLabel get() = when (provider) {
         ChatProvider.GEMINI -> "Gemini · ${selectedModel.label}"
@@ -158,17 +163,36 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun dismissError() { error = null }
 
+    fun attach(uri: Uri) {
+        try {
+            getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            attachment = AttachmentClient(getApplication()).describe(uri)
+            error = null
+        } catch (failure: Exception) {
+            // Alguns provedores permitem leitura temporária, mas não persistente.
+            try { attachment = AttachmentClient(getApplication()).describe(uri) }
+            catch (_: Exception) {
+                error = "Não consegui abrir este arquivo."
+                diagnostics.record("Arquivo", "Não foi possível acessar arquivo (${failure.javaClass.simpleName}).")
+            }
+        }
+    }
+
+    fun removeAttachment() { attachment = null }
+
     fun send(input: String, onAnswer: (String) -> Unit): Boolean {
         val text = input.trim()
-        if (text.isEmpty() || busy) return false
-        val selectedProvider = provider
+        val selectedFile = attachment
+        if ((text.isEmpty() && selectedFile == null) || busy) return false
+        val selectedProvider = if (selectedFile != null) ChatProvider.GEMINI else provider
         val key = storeFor(selectedProvider).read()
         if (key == null) {
             error = "Salve sua chave ${selectedProvider.label} em Ajustes."
             diagnostics.record("Chat", "Chave ${selectedProvider.label} não configurada.")
             return false
         }
-        messages = messages + ChatMessage("user", text)
+        val prompt = text.ifBlank { "Analise este arquivo e explique os pontos mais relevantes." }
+        messages = messages + ChatMessage("user", prompt + (selectedFile?.let { "\n📎 ${it.name}" } ?: ""))
         busy = true
         error = null
         activeModel = null
@@ -176,17 +200,22 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         streamingText = ""
         val snapshot = messages
         viewModelScope.launch {
+            var uploaded: String? = null
             try {
                 var response: String
                 if (selectedProvider == ChatProvider.GEMINI) {
-                    val choices = ChatModel.candidates(selectedModel, fallback)
+                    val part = if (selectedFile != null) withContext(Dispatchers.IO) {
+                        AttachmentClient(getApplication()).prepare(selectedFile, key)
+                    }.also { uploaded = it.remoteName }.part else null
+                    val choices = if (selectedFile != null) listOf(ChatModel.GEMINI_25)
+                        else ChatModel.candidates(selectedModel, fallback)
                     var answer: String? = null
                     for ((index, choice) in choices.withIndex()) {
                         activeModel = choice
                         activeTextModel = "Gemini · ${choice.label}"
                         try {
                             answer = withContext(Dispatchers.IO) {
-                                GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode) { partial ->
+                                GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part) { partial ->
                                     main.post { if (busy && activeModel == choice) streamingText = partial }
                                 }
                             }
@@ -230,10 +259,11 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 messages = messages + ChatMessage("model", response)
                 streamingText = ""
                 withContext(Dispatchers.IO) { history.save(messages) }
+                if (attachment == selectedFile) attachment = null
                 onAnswer(response)
             } catch (exception: Exception) {
                 streamingText = ""
-                diagnostics.record("Chat ${selectedProvider.label}", when (exception) {
+                diagnostics.record(if (selectedFile != null) "Arquivo Gemini" else "Chat ${selectedProvider.label}", when (exception) {
                     is ChatProviderHttpException -> "HTTP ${exception.status} durante resposta. Modelo: ${if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel}."
                     is GeminiHttpException -> "HTTP ${exception.status} durante resposta Gemini."
                     else -> "${exception.javaClass.simpleName}: falha ao obter resposta."
@@ -249,7 +279,15 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // Mantém o texto do usuário para reenvio ou cópia após falha.
                 withContext(Dispatchers.IO) { history.save(messages) }
-            } finally { activeModel = null; activeTextModel = null; busy = false }
+            } finally {
+                uploaded?.let { remote ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        try { AttachmentClient(getApplication()).delete(remote, key) }
+                        catch (_: Exception) { diagnostics.record("Arquivo", "Não foi possível remover o arquivo remoto após a análise.") }
+                    }
+                }
+                activeModel = null; activeTextModel = null; busy = false
+            }
         }
         return true
     }

@@ -24,6 +24,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private val preferences = application.getSharedPreferences("osone_config", 0)
     private val secrets = SecureKeyStore(application)
     private val diagnostics = AppDiagnostics.get(application)
+    private val localTools = AndroidLocalTools(application)
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -48,6 +49,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var attempts by mutableStateOf<List<String>>(emptyList())
         private set
+    var screenSharing by mutableStateOf(false)
 
     private var candidates = emptyList<LiveModel>()
     private var candidateIndex = 0
@@ -98,6 +100,14 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (muted) inputLevel = 0f
     }
 
+    /** Um quadro JPEG por segundo, só durante projeção autorizada pelo Android. */
+    fun sendScreenFrame(encodedJpeg: String) {
+        val current = socket
+        if (!ready || !screenSharing || current == null || current.queueSize() > 1_000_000L) return
+        current.send(JSONObject().put("realtimeInput", JSONObject().put("video", JSONObject()
+            .put("mimeType", "image/jpeg").put("data", encodedJpeg))).toString())
+    }
+
     fun stop() {
         running = false
         ready = false
@@ -133,8 +143,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                     val setup = JSONObject().put("setup", JSONObject()
                         .put("model", "models/${model.id}")
                         .put("generationConfig", generation)
+                        .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", localTools.declarations())))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSONE APP, assistente de Henrique. Converse naturalmente em português brasileiro. Não afirme ter executado ações externas que não realizou.")))))
+                            .put("text", "Você é OSONE APP, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Use ações locais apenas quando Henrique pedir. A tela só é visível quando o compartilhamento estiver ligado e as imagens não são armazenadas. Não afirme ter executado ações externas que não realizou.")))))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
                 }
             }
@@ -210,9 +221,27 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
         if (content?.optBoolean("turnComplete") == true) audio?.finishTurn()
+        message.optJSONObject("toolCall")?.let { call ->
+            main.post { if (running && socket === webSocket) handleToolCall(webSocket, call) }
+        }
         if (message.has("setupComplete") || message.has("goAway") || message.has("error")) {
             main.post { if (running && socket === webSocket) handleControl(webSocket, message) }
         }
+    }
+
+    private fun handleToolCall(ws: WebSocket, call: JSONObject) {
+        val calls = call.optJSONArray("functionCalls") ?: return
+        val responses = JSONArray()
+        for (index in 0 until calls.length()) {
+            val action = calls.optJSONObject(index) ?: continue
+            val name = action.optString("name")
+            val answer = localTools.execute(name, action.optJSONObject("args") ?: JSONObject())
+            val response = JSONObject().put("name", name).put("response", JSONObject().put("result", answer))
+            if (action.has("id")) response.put("id", action.optString("id"))
+            responses.put(response)
+        }
+        if (responses.length() > 0 && socket === ws && running)
+            ws.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
     }
 
     private fun handleControl(ws: WebSocket, message: JSONObject) {
