@@ -39,6 +39,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var fallback by mutableStateOf(preferences.getBoolean("live_fallback", true))
         private set
+    var echoGuard by mutableStateOf(preferences.getBoolean("live_echo_guard", true))
+        private set
     var active by mutableStateOf<LiveModel?>(null)
         private set
     var status by mutableStateOf("Pronto para conversar")
@@ -102,6 +104,12 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         preferences.edit().putBoolean("live_fallback", enabled).apply()
     }
 
+    fun updateEchoGuard(enabled: Boolean) {
+        echoGuard = enabled
+        audio?.echoGuard = enabled
+        preferences.edit().putBoolean("live_echo_guard", enabled).apply()
+    }
+
     fun selectVoice(name: String) {
         voice = LiveVoices.fromName(name)
         preferences.edit().putString("live_voice", voice).apply()
@@ -124,6 +132,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         screenFramesCaptured = 0
         screenFramesSkipped = 0
         lastScreenFrameAt = 0L
+        interruptions = 0
         connect()
     }
 
@@ -298,7 +307,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 val now = System.currentTimeMillis()
                 interruptions = if (now - interruptedAt < 10_000) interruptions + 1 else 1
                 interruptedAt = now
-                if (interruptions == 3) diagnostics.record("Live", "Três interrupções de voz em 10 s. Possível eco do alto-falante ou fala detectada durante a resposta.")
+                if (interruptions == 3) diagnostics.record("Live", if (echoGuard)
+                    "Três interrupções de voz em 10 s. Ruído alto ou outra pessoa falando perto do microfone."
+                    else "Três interrupções de voz em 10 s. Ative a proteção de eco no painel do Live ou use fones.")
             }
         }
         val parts = content?.optJSONObject("modelTurn")?.optJSONArray("parts")
@@ -384,7 +395,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             stop(); status = "Áudio indisponível. Veja o diagnóstico."
                         } } },
                         onDiagnostic = { detail -> diagnostics.record("Áudio Live", detail) }
-                    ).also { it.muted = muted; it.start() }
+                    ).also { it.muted = muted; it.echoGuard = echoGuard; it.start() }
                 } catch (failure: Exception) {
                     diagnostics.record("Áudio Live", "Não iniciou microfone/alto-falante (${failure.javaClass.simpleName}).")
                     stop(); status = "Não foi possível iniciar o áudio."

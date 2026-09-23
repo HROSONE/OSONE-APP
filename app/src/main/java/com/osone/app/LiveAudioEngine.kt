@@ -2,12 +2,14 @@ package com.osone.app
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.Process
 import android.util.Base64
@@ -34,9 +36,15 @@ class LiveAudioEngine(
     @Volatile private var turnEnded = false
     @Volatile var muted = false
     @Volatile var outputGain = 1f
+    /** Com o alto-falante do aparelho, evita que a própria voz do OSTIE volte ao microfone. */
+    @Volatile var echoGuard = true
+    /** Momento até o qual o alto-falante ainda pode estar emitindo a resposta. */
+    @Volatile private var speakerBusyUntil = 0L
+    @Volatile private var privateOutput = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
     private var echoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
     private var leftoverByte: Byte? = null
     private var lastOverflowWarning = 0L
     fun start() {
@@ -55,8 +63,12 @@ class LiveAudioEngine(
             if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(input.audioSessionId)?.also { it.enabled = true }
             else null
         } catch (_: Exception) { null }
+        noiseSuppressor = try {
+            if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(input.audioSessionId)?.also { it.enabled = true }
+            else null
+        } catch (_: Exception) { null }
         if (echoCanceler?.enabled != true)
-            onDiagnostic("Cancelamento de eco do Android indisponível nesta rota de áudio; um fone pode evitar interrupções.")
+            onDiagnostic("Cancelamento de eco do Android indisponível; a proteção de eco do OSTIE fica responsável por evitar interrupções.")
         val output = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -64,26 +76,55 @@ class LiveAudioEngine(
                 .setSampleRate(24000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
             .setBufferSizeInBytes(outputBuffer).setTransferMode(AudioTrack.MODE_STREAM).build()
         if (output.state != AudioTrack.STATE_INITIALIZED) {
-            echoCanceler?.release(); echoCanceler = null
+            releaseEffects()
             input.release(); output.release(); throw IllegalStateException("Áudio indisponível")
         }
         // O pré-buffer é controlado pela fila acima; respostas curtas também precisam tocar.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) output.setStartThresholdInFrames(1)
         try { input.startRecording() } catch (error: Exception) {
-            echoCanceler?.release(); echoCanceler = null
+            releaseEffects()
             input.release(); output.release(); throw error
         }
         recorder = input; player = output; running = true
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            val frame = ByteArray(1280) // 40 ms at 16 kHz, 16-bit mono.
+            val frame = ByteArray(FRAME_BYTES) // 40 ms at 16 kHz, 16-bit mono.
+            val silence = Base64.encodeToString(ByteArray(FRAME_BYTES), Base64.NO_WRAP)
+            val held = ArrayDeque<String>() // Início da fala do usuário enquanto o OSTIE fala.
+            var echoLevel = 0.02f
+            var loudFrames = 0
+            var bargeInUntil = 0L
+            var lastRouteCheck = 0L
             while (running) {
                 val count = try { input.read(frame, 0, frame.size) } catch (_: Exception) { break }
                 if (count <= 0) { if (running) onError(); break }
-                if (!muted) {
-                    inputLevel(amplitude(frame, count))
-                    send(Base64.encodeToString(frame, 0, count, Base64.NO_WRAP))
-                } else inputLevel(0f)
+                if (muted) { inputLevel(0f); held.clear(); loudFrames = 0; continue }
+                val now = System.currentTimeMillis()
+                if (now - lastRouteCheck > 1500) { lastRouteCheck = now; privateOutput = usesPrivateOutput() }
+                val level = amplitude(frame, count)
+                inputLevel(level)
+                val encoded = Base64.encodeToString(frame, 0, count, Base64.NO_WRAP)
+                val speakerTalking = echoGuard && !privateOutput && now < speakerBusyUntil
+                if (!speakerTalking || now < bargeInUntil) {
+                    // Sem eco possível (ou usuário já interrompeu): áudio real, contínuo.
+                    if (speakerTalking && level > bargeThreshold(echoLevel)) bargeInUntil = now + BARGE_HOLD_MS
+                    held.clear() // Quadros retidos eram eco; não chegam ao serviço.
+                    loudFrames = 0
+                    if (!speakerTalking) echoLevel = maxOf(0.02f, echoLevel * 0.9f)
+                    send(encoded)
+                    continue
+                }
+                // O alto-falante está tocando: o microfone ouve a própria resposta. O Gemini
+                // recebe silêncio até a fala do usuário superar claramente o eco medido.
+                if (level > bargeThreshold(echoLevel)) loudFrames++
+                else { loudFrames = 0; echoLevel = maxOf(level, echoLevel * 0.97f).coerceAtMost(0.4f) }
+                held.addLast(encoded)
+                if (held.size > BARGE_FRAMES) held.removeFirst()
+                if (loudFrames >= BARGE_FRAMES) {
+                    bargeInUntil = now + BARGE_HOLD_MS
+                    held.forEach(send); held.clear()
+                    loudFrames = 0
+                } else send(silence)
             }
         }, "osone-microphone").start()
         Thread({
@@ -150,6 +191,8 @@ class LiveAudioEngine(
                     if (count <= 0) { if (running && next.generation == generation.get()) onDiagnostic("Falha ao escrever no alto-falante."); break }
                     offset += count
                     writtenFrames += count / 2
+                    val pendingMs = maxOf(0L, writtenFrames - output.playbackHeadPosition.toLong()) / 24
+                    speakerBusyUntil = System.currentTimeMillis() + pendingMs + ECHO_TAIL_MS
                     outputLevel(amplitude(playback, count, offset - count))
                 }
             }
@@ -188,6 +231,8 @@ class LiveAudioEngine(
         synchronized(outputLock) {
             player?.let { if (running) { it.pause(); it.flush() } }
         }
+        // O som já emitido ainda ecoa por alguns milissegundos no ambiente.
+        speakerBusyUntil = minOf(speakerBusyUntil, System.currentTimeMillis() + 200)
         outputLevel(0f)
     }
 
@@ -198,13 +243,26 @@ class LiveAudioEngine(
         queuedBytes.set(0)
         try { recorder?.stop() } catch (_: Exception) {}
         recorder?.release(); recorder = null
-        echoCanceler?.release(); echoCanceler = null
+        releaseEffects()
         synchronized(outputLock) {
             try { player?.pause(); player?.flush(); player?.stop() } catch (_: Exception) {}
             player?.release(); player = null
         }
         inputLevel(0f); outputLevel(0f)
     }
+
+    private fun releaseEffects() {
+        echoCanceler?.release(); echoCanceler = null
+        noiseSuppressor?.release(); noiseSuppressor = null
+    }
+
+    private fun bargeThreshold(echo: Float) = maxOf(BARGE_MIN_LEVEL, echo * BARGE_RATIO).coerceAtMost(0.7f)
+
+    /** Fones com fio, Bluetooth, USB ou aparelhos auditivos não realimentam o microfone. */
+    private fun usesPrivateOutput(): Boolean = try {
+        context.getSystemService(AudioManager::class.java)
+            .getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in PRIVATE_OUTPUTS }
+    } catch (_: Exception) { false }
 
     /** Ganho digital com saturação: evita overflow ao aumentar uma resposta PCM baixa. */
     private fun amplify(input: ByteArray, gain: Float): ByteArray {
@@ -230,5 +288,20 @@ class LiveAudioEngine(
             sum += sample.toDouble() * sample
         }
         return (sqrt(sum / samples) / 10000.0).toFloat().coerceIn(0f, 1f)
+    }
+
+    private companion object {
+        const val FRAME_BYTES = 1280
+        const val ECHO_TAIL_MS = 300L
+        const val BARGE_FRAMES = 3 // 120 ms de fala acima do eco para interromper.
+        const val BARGE_HOLD_MS = 1200L
+        const val BARGE_MIN_LEVEL = 0.08f
+        const val BARGE_RATIO = 2.4f
+        val PRIVATE_OUTPUTS = setOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_USB_HEADSET, 23 /* TYPE_HEARING_AID */,
+            26 /* TYPE_BLE_HEADSET */
+        )
     }
 }

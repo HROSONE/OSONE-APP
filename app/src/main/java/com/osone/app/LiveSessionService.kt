@@ -121,7 +121,7 @@ class LiveSessionService : Service() {
         val close = PendingIntent.getService(this, 2, Intent(this, LiveSessionService::class.java).setAction(STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_ostie_notification)
             .setContentTitle(if (showingCamera) "OSTIE · voz e câmera ativas"
                 else if (sharing) "OSTIE · voz e tela ativas" else "OSTIE · voz ativa")
             .setContentText("Toque para voltar à conversa. Encerrar para desligar o microfone.")
