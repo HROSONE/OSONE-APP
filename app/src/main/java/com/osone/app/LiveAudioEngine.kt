@@ -22,6 +22,7 @@ class LiveAudioEngine(
     private val outputLock = Any()
     @Volatile private var running = false
     @Volatile var muted = false
+    @Volatile var outputGain = 1.4f
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
 
@@ -34,7 +35,7 @@ class LiveAudioEngine(
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, inputBuffer)
         if (input.state != AudioRecord.STATE_INITIALIZED) { input.release(); throw IllegalStateException("Microfone indisponível") }
         val output = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(24000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
@@ -63,14 +64,15 @@ class LiveAudioEngine(
             while (running) {
                 val chunk = try { queue.poll(100, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break }
                 if (chunk == null) { outputLevel(0f); continue }
+                val playback = amplify(chunk, outputGain)
                 var offset = 0
-                while (running && offset < chunk.size) {
+                while (running && offset < playback.size) {
                     val count = synchronized(outputLock) {
-                        if (running) output.write(chunk, offset, minOf(2048, chunk.size - offset)) else -1
+                        if (running) output.write(playback, offset, minOf(2048, playback.size - offset)) else -1
                     }
                     if (count <= 0) break
                     offset += count
-                    outputLevel(amplitude(chunk, count, offset - count))
+                    outputLevel(amplitude(playback, count, offset - count))
                 }
             }
         }, "osone-speaker").start()
@@ -101,6 +103,20 @@ class LiveAudioEngine(
             player?.release(); player = null
         }
         inputLevel(0f); outputLevel(0f)
+    }
+
+    /** Ganho digital com saturação: evita overflow ao aumentar uma resposta PCM baixa. */
+    private fun amplify(input: ByteArray, gain: Float): ByteArray {
+        if (gain == 1f) return input
+        val result = input.copyOf()
+        for (i in 0 until result.size - 1 step 2) {
+            val value = (((result[i + 1].toInt() and 255) shl 8) or
+                (result[i].toInt() and 255)).toShort().toInt()
+            val scaled = (value * gain).toInt().coerceIn(-32768, 32767)
+            result[i] = scaled.toByte()
+            result[i + 1] = (scaled shr 8).toByte()
+        }
+        return result
     }
 
     private fun amplitude(bytes: ByteArray, count: Int, start: Int = 0): Float {

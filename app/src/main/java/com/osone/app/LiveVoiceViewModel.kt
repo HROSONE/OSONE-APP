@@ -28,6 +28,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
 
     var selected by mutableStateOf(LiveModel.fromId(preferences.getString("live_model", null)))
         private set
+    var voice by mutableStateOf(LiveVoices.fromName(preferences.getString("live_voice", null)))
+        private set
+    var gain by mutableStateOf(preferences.getFloat("live_gain", 1.4f).coerceIn(0.5f, 2f))
+        private set
     var fallback by mutableStateOf(preferences.getBoolean("live_fallback", true))
         private set
     var active by mutableStateOf<LiveModel?>(null)
@@ -62,6 +66,18 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateFallback(enabled: Boolean) {
         fallback = enabled
         preferences.edit().putBoolean("live_fallback", enabled).apply()
+    }
+
+    fun selectVoice(name: String) {
+        voice = LiveVoices.fromName(name)
+        preferences.edit().putString("live_voice", voice).apply()
+        if (running) start() // A voz pertence à configuração inicial de cada sessão.
+    }
+
+    fun setGain(value: Float) {
+        gain = value.coerceIn(0.5f, 2f)
+        preferences.edit().putFloat("live_gain", gain).apply()
+        audio?.outputGain = gain
     }
 
     fun start() {
@@ -111,9 +127,13 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 main.post {
                     if (!running || socket !== webSocket) return@post
                     // Começa com o setup mínimo da documentação, comum aos modelos Live.
+                    val generation = JSONObject()
+                        .put("responseModalities", JSONArray().put("AUDIO"))
+                        .put("speechConfig", JSONObject().put("voiceConfig", JSONObject()
+                            .put("prebuiltVoiceConfig", JSONObject().put("voiceName", voice))))
                     val setup = JSONObject().put("setup", JSONObject()
                         .put("model", "models/${model.id}")
-                        .put("generationConfig", JSONObject().put("responseModalities", JSONArray().put("AUDIO")))
+                        .put("generationConfig", generation)
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
                             .put("text", "Você é OSONE APP, assistente de Henrique. Converse naturalmente em português brasileiro. Não afirme ter executado ações externas que não realizou.")))))
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
@@ -193,7 +213,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         inputLevel = { value -> main.post { if (running) inputLevel = value } },
                         outputLevel = { value -> main.post { if (running) outputLevel = value } },
                         onError = { main.post { if (running) { stop(); status = "Microfone indisponível. Tente novamente." } } }
-                    ).also { it.muted = muted; it.start() }
+                    ).also { it.muted = muted; it.outputGain = gain; it.start() }
                 } catch (_: Exception) { stop(); status = "Não foi possível iniciar o microfone ou o alto-falante." }
             }
         }

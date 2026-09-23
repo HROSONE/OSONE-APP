@@ -12,7 +12,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** A chave da API nunca é salva em texto simples nem incluída no projeto. */
-class SecureKeyStore(context: Context) {
+class SecureKeyStore(context: Context, private val slot: String = "key") {
     private val preferences = context.getSharedPreferences("osone_segredos", Context.MODE_PRIVATE)
     private val alias = "osone_gemini_key_v1"
 
@@ -32,12 +32,12 @@ class SecureKeyStore(context: Context) {
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val encrypted = cipher.doFinal(value.toByteArray(StandardCharsets.UTF_8))
         return preferences.edit()
-            .putString("key", Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP))
+            .putString(slot, Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP))
             .commit()
     }
 
     fun read(): String? {
-        val saved = preferences.getString("key", null) ?: return null
+        val saved = preferences.getString(slot, null) ?: return null
         return try {
             val bytes = Base64.decode(saved, Base64.NO_WRAP)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -46,5 +46,5 @@ class SecureKeyStore(context: Context) {
         } catch (_: Exception) { null }
     }
 
-    fun clear() = preferences.edit().remove("key").apply()
+    fun clear() = preferences.edit().remove(slot).apply()
 }

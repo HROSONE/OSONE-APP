@@ -11,3 +11,15 @@ enum class LiveModel(val id: String, val label: String) {
             if (fallback) listOf(selected) + entries.filterNot { it == selected } else listOf(selected)
     }
 }
+
+/** Nomes oficiais das vozes predefinidas aceitas pelos modelos Live com áudio nativo. */
+object LiveVoices {
+    val names = listOf(
+        "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda",
+        "Orus", "Aoede", "Callirrhoe", "Autonoe", "Enceladus", "Iapetus",
+        "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi",
+        "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima",
+        "Achird", "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat"
+    )
+    fun fromName(name: String?) = names.firstOrNull { it == name } ?: "Puck"
+}

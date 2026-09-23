@@ -23,3 +23,18 @@ enum class ThinkingMode(val value: String, val label: String) {
         fun fromValue(value: String?) = entries.firstOrNull { it.value == value } ?: FAST
     }
 }
+
+enum class ChatProvider(val value: String, val label: String) {
+    GEMINI("gemini", "Gemini"), OPENROUTER("openrouter", "OpenRouter"), GROQ("groq", "Groq");
+    companion object {
+        fun fromValue(value: String?) = entries.firstOrNull { it.value == value } ?: GEMINI
+    }
+}
+
+enum class GroqModel(val id: String, val label: String) {
+    LLAMA_70B("llama-3.3-70b-versatile", "Llama 3.3 70B"),
+    LLAMA_8B("llama-3.1-8b-instant", "Llama 3.1 8B (rápido)");
+    companion object {
+        fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: LLAMA_70B
+    }
+}

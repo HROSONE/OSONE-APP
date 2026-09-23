@@ -21,4 +21,12 @@ class ChatModelsTest {
         assertTrue(GeminiHttpException(429).allowsFallback)
         assertTrue(GeminiHttpException(503).allowsFallback)
     }
+
+    @Test fun liveOffersThirtyDistinctNamedVoicesAndKeepsExistingGeminiDefault() {
+        assertEquals(30, LiveVoices.names.size)
+        assertEquals(30, LiveVoices.names.toSet().size)
+        assertTrue(LiveVoices.names.contains("Kore"))
+        assertEquals("Puck", LiveVoices.fromName(null))
+        assertEquals(ChatProvider.GEMINI, ChatProvider.fromValue(null))
+    }
 }

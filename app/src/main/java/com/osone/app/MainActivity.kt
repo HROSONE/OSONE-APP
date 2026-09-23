@@ -2,6 +2,7 @@ package com.osone.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        volumeControlStream = AudioManager.STREAM_MUSIC
         darkMode = getSharedPreferences("osone_config", 0).getBoolean("dark_mode", false)
         speech = TextToSpeech(this, this)
         setContent {
@@ -108,7 +110,7 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
             TextButton(onClick = onSettings) { Text("Ajustes") }
         }
         Text("Seu assistente no Android", color = MaterialTheme.colorScheme.secondary)
-        Text("Cérebro do chat: ${viewModel.selectedModel.label}", style = MaterialTheme.typography.bodySmall)
+        Text("Cérebro do chat: ${viewModel.selectedChatLabel}", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         LazyColumn(state = scroll, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(viewModel.messages) { message ->
@@ -136,9 +138,9 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
             }
         }
         if (viewModel.busy) {
-            Text("Consultando ${viewModel.activeModel?.label ?: viewModel.selectedModel.label}…", style = MaterialTheme.typography.bodySmall)
+            Text("Consultando ${viewModel.activeTextModel ?: viewModel.selectedChatLabel}…", style = MaterialTheme.typography.bodySmall)
             LinearProgressIndicator(Modifier.fillMaxWidth())
-        } else if (viewModel.lastAnswerModel != null && viewModel.lastAnswerModel != viewModel.selectedModel) {
+        } else if (viewModel.provider == ChatProvider.GEMINI && viewModel.lastAnswerModel != null && viewModel.lastAnswerModel != viewModel.selectedModel) {
             Text("Última resposta: ${viewModel.lastAnswerModel?.label}", style = MaterialTheme.typography.bodySmall)
         }
         viewModel.error?.let { error ->
@@ -161,7 +163,6 @@ private fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, permissionE
 @Composable
 private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, darkMode: Boolean,
     onDarkMode: (Boolean) -> Unit, onBack: () -> Unit) {
-    var key by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← Conversa") }
         Text("Configurações", style = MaterialTheme.typography.headlineMedium)
@@ -169,31 +170,38 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
             Text("Modo noturno", modifier = Modifier.weight(1f))
             Switch(checked = darkMode, onCheckedChange = onDarkMode)
         }
-        Text(if (viewModel.configured) "✓ Chave Gemini salva neste aparelho (oculta por segurança)" else "Nenhuma chave Gemini salva")
-        OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Nova chave Gemini") },
-            placeholder = { Text(if (viewModel.configured) "Cole aqui somente para trocar a chave" else "Cole sua chave Gemini") },
-            visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { if (viewModel.saveKey(key)) key = "" }, enabled = key.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()) { Text(if (viewModel.configured) "Atualizar chave" else "Salvar chave") }
+        Text("Chaves de API", style = MaterialTheme.typography.titleMedium)
+        ProviderKeyField(viewModel, ChatProvider.GEMINI)
+        Text("Gemini permanece como chave do Live. No chat escrito, use o provedor escolhido abaixo.", style = MaterialTheme.typography.bodySmall)
+        ProviderKeyField(viewModel, ChatProvider.OPENROUTER)
+        ProviderKeyField(viewModel, ChatProvider.GROQ)
         viewModel.keyStatus?.let { Text(it, color = if (viewModel.keySaveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
         HorizontalDivider()
         Text("Cérebro do chat escrito", style = MaterialTheme.typography.titleMedium)
-        ChatModelPicker(viewModel)
-        ThinkingModePicker(viewModel)
-        Text("Rápido responde com menos espera; Profundo pode demorar mais. O Gemini 2.5 mantém seu comportamento próprio.", style = MaterialTheme.typography.bodySmall)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
-            Switch(checked = viewModel.fallback, onCheckedChange = viewModel::updateFallback)
+        ChatProviderPicker(viewModel)
+        when (viewModel.provider) {
+            ChatProvider.GEMINI -> {
+                ChatModelPicker(viewModel)
+                ThinkingModePicker(viewModel)
+                Text("Rápido responde com menos espera; Profundo pode demorar mais.", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Trocar de modelo Gemini se falhar", modifier = Modifier.weight(1f))
+                    Switch(checked = viewModel.fallback, onCheckedChange = viewModel::updateFallback)
+                }
+                Text("Ordem: modelo escolhido → versões Flash anteriores. Só troca se o modelo estiver indisponível ou sem cota.", style = MaterialTheme.typography.bodySmall)
+            }
+            ChatProvider.GROQ -> GroqModelPicker(viewModel)
+            ChatProvider.OPENROUTER -> OpenRouterModelField(viewModel)
         }
-        Text("Ordem: modelo escolhido → versões Flash anteriores. Só troca se o modelo estiver indisponível ou sem cota; um erro de chave interrompe a tentativa.", style = MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Text("Voz em tempo real", style = MaterialTheme.typography.titleMedium)
         LiveModelPicker(live)
+        LiveVoicePicker(live)
+        Text("Trocar de voz reinicia a chamada. O volume da voz fica no orbe Live.", style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Trocar de modelo se falhar", modifier = Modifier.weight(1f))
             Switch(checked = live.fallback, onCheckedChange = live::updateFallback)
         }
-        TextButton(onClick = viewModel::removeKey) { Text("Remover chave deste aparelho") }
         HorizontalDivider()
         var confirmClear by remember { mutableStateOf(false) }
         TextButton(onClick = { confirmClear = true }) { Text("Apagar conversa deste aparelho") }
@@ -202,8 +210,66 @@ private fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, 
             confirmButton = { TextButton(onClick = { viewModel.clearConversation(); confirmClear = false }) { Text("Apagar") } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancelar") } })
         viewModel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("A chave salva é compartilhada entre o chat escrito e o Live neste aparelho. A lista de modelos do cérebro controla o chat; a lista Live controla a conversa por voz. Internet e cota Gemini são necessárias.", style = MaterialTheme.typography.bodySmall)
+        Text("Gemini é obrigatório apenas para o Live; no texto, você escolhe Gemini, OpenRouter ou Groq. Cada chave é individual e só vai ao respectivo serviço. Internet e acesso aos modelos são necessários.", style = MaterialTheme.typography.bodySmall)
     }
+}
+
+@Composable
+private fun ProviderKeyField(viewModel: OsoneViewModel, provider: ChatProvider) {
+    var key by remember(provider) { mutableStateOf("") }
+    val saved = viewModel.configuredFor(provider)
+    Text("${provider.label}${if (provider == ChatProvider.GEMINI) " · Live e chat opcional" else " · só chat"}: ${if (saved) "chave salva ✓" else "sem chave"}",
+        style = MaterialTheme.typography.bodyMedium)
+    OutlinedTextField(value = key, onValueChange = { key = it },
+        label = { Text("Chave ${provider.label}") },
+        placeholder = { Text(if (saved) "Cole uma nova chave para substituir" else "Cole sua chave") },
+        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { if (viewModel.saveKey(key, provider)) key = "" }, enabled = key.isNotBlank()) {
+            Text(if (saved) "Atualizar" else "Salvar")
+        }
+        if (saved) TextButton(onClick = { viewModel.removeKey(provider) }) { Text("Remover") }
+    }
+}
+
+@Composable
+private fun ChatProviderPicker(viewModel: OsoneViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("Provedor: ${viewModel.provider.label}  ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ChatProvider.entries.forEach { value ->
+                DropdownMenuItem(text = { Text(value.label) }, onClick = {
+                    viewModel.selectProvider(value); expanded = false
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroqModelPicker(viewModel: OsoneViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("Modelo: ${viewModel.groqModel.label}  ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            GroqModel.entries.forEach { value ->
+                DropdownMenuItem(text = { Text(value.label) }, onClick = {
+                    viewModel.selectGroqModel(value); expanded = false
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenRouterModelField(viewModel: OsoneViewModel) {
+    var draft by remember { mutableStateOf(viewModel.openRouterModel) }
+    OutlinedTextField(value = draft, onValueChange = { draft = it }, singleLine = true,
+        modifier = Modifier.fillMaxWidth(), label = { Text("ID do modelo OpenRouter") })
+    Button(onClick = { viewModel.setOpenRouterModel(draft); draft = viewModel.openRouterModel }) { Text("Salvar modelo") }
+    Text("openrouter/free é o padrão gratuito e escolhe um modelo disponível. Você pode informar outro ID; confira preços e acesso no OpenRouter.",
+        style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -237,6 +303,21 @@ private fun ChatModelPicker(viewModel: OsoneViewModel) {
 }
 
 @Composable
+private fun LiveVoicePicker(live: LiveVoiceViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("Voz Gemini: ${live.voice}  ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LiveVoices.names.forEach { name ->
+                DropdownMenuItem(text = { Text(name) }, onClick = {
+                    live.selectVoice(name); expanded = false
+                })
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiveModelPicker(live: LiveVoiceViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -254,7 +335,8 @@ private fun LiveModelPicker(live: LiveVoiceViewModel) {
 
 @Composable
 private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp),
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+        .verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Chat") }
@@ -263,6 +345,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         LiveModelPicker(live)
+        LiveVoicePicker(live)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Fallback automático")
             Spacer(Modifier.width(12.dp))
@@ -271,7 +354,7 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
                 if (live.active != null) live.start()
             })
         }
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(Modifier.height(230.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
             VoiceOrb(live.inputLevel, live.outputLevel, live.connected)
         }
         Text(live.status, style = MaterialTheme.typography.titleMedium)
@@ -283,7 +366,11 @@ private fun LiveScreen(live: LiveVoiceViewModel, onBack: () -> Unit) {
             Text("Fallback: ${live.active?.label}", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(8.dp))
         Text("Áudio direto · sem transcrição", style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(12.dp))
+        Text("Volume da voz: ${(live.gain * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+        Slider(value = live.gain, onValueChange = live::setGain, valueRange = 0.5f..2f, steps = 14)
+        Text("Os botões de volume do celular controlam a mídia.", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = live::toggleMute, enabled = live.connected) {
                 Text(if (live.muted) "Ativar microfone" else "Silenciar")
@@ -305,7 +392,7 @@ private fun VoiceOrb(input: Float, output: Float, connected: Boolean) {
         animationSpec = tween(100), label = "energia")
     val speaking = output > input
     val core = if (speaking) Color(0xFF24D2DE) else Color(0xFF8956EA)
-    Canvas(Modifier.fillMaxWidth().height(320.dp)) {
+    Canvas(Modifier.fillMaxWidth().height(230.dp)) {
         val radius = size.minDimension * (0.27f + breath * 0.016f + energy * 0.09f)
         val center = center
         drawCircle(Brush.radialGradient(listOf(core.copy(alpha = 0.25f), core.copy(alpha = 0.07f),

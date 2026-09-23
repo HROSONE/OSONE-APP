@@ -4,9 +4,9 @@ Fonte consultada: `zerobob623-bit/OSONE-AI-code`, branch `main`, mapa `FEATURES.
 
 | Sistema atual | Caminho Android | Estado |
 | --- | --- | --- |
-| Chat Gemini | Kotlin, HTTPS e histórico privado | Primeira versão |
+| Chat Gemini, OpenRouter e Groq | Kotlin, HTTPS, streaming SSE, chaves separadas e histórico privado | Implementado; validação dos provedores em aparelho pendente |
 | Entrada e saída de voz | AudioRecord e AudioTrack no Live; TextToSpeech opcional no chat escrito | Live implementado, validação em aparelho pendente |
-| Gemini Live, barge-in e reprodução PCM | AudioRecord, AudioTrack, WebSocket com quadros binários/texto, interrupção, reconexão sem histórico e fallback entre modelos | Implementado, validação em aparelho pendente |
+| Gemini Live, barge-in e reprodução PCM | AudioRecord, AudioTrack com saída de mídia e ganho ajustável, 30 vozes, WebSocket binário/texto, interrupção e fallback | Implementado; volume/vozes em aparelhos diversos pendentes |
 | Memória e anexos | Room, indexação local e Android Photo Picker/SAF | Pendente |
 | Ler tela e câmera | MediaProjection com consentimento, CameraX | Pendente |
 | Abrir apps e links | Intents autorizadas e confirmação | Pendente |
