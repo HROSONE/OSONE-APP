@@ -77,9 +77,17 @@ jobs:
             exit 0
           fi
           # Nome atual do repositório de releases: o GitHub resolve renomeações do repositório e do dono.
+          # (Em erro, o gh api escreve a resposta na saída padrão: só aceita o nome se o comando der certo.)
           if [ -z "$RELEASES_REPO" ]; then
-            RELEASES_REPO=$(gh api "repos/${{ github.repository_owner }}/OSTIE-AI-releases" --jq .full_name 2>/dev/null \
-              || gh api "repos/${{ github.repository_owner }}/OSONE-AI-releases" --jq .full_name)
+            for NAME in OSTIE-AI-releases OSONE-AI-releases; do
+              if FOUND=$(gh api "repos/${{ github.repository_owner }}/$NAME" --jq .full_name 2>/dev/null); then
+                RELEASES_REPO="$FOUND"; break
+              fi
+            done
+          fi
+          if ! [[ "$RELEASES_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "Repositório de releases não encontrado ou inválido: '$RELEASES_REPO'"
+            exit 1
           fi
           echo "Publicando em $RELEASES_REPO"
           APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
