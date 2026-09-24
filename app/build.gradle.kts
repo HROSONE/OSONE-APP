@@ -15,6 +15,8 @@ android {
         // A CI publica cada versão com um número crescente; localmente vale o padrão.
         versionCode = System.getenv("OSTIE_VERSION_CODE")?.toIntOrNull() ?: 15
         versionName = System.getenv("OSTIE_VERSION_NAME") ?: "0.15.0"
+        // Reconhecedor da escuta ativa (Vosk) só para celulares ARM: evita ~20 MB de bibliotecas x86 no APK.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
     signingConfigs {
         create("stable") {
@@ -57,6 +59,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
+    // Escuta ativa offline ("Ei, Ostie"); @aar sem dependências transitivas, com o JNA para Android.
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
     testImplementation("junit:junit:4.13.2")
     // org.json real nos testes JVM (o android.jar só traz stubs).
     testImplementation("org.json:json:20250517")

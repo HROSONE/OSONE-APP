@@ -98,6 +98,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
 
+    private val wakeMicPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) WakeWord.enable(this) else WakeWord.status = "Sem o microfone, a escuta ativa não funciona."
+    }
+
+    /** Chave "Ouvir Ei, Ostie" em Ajustes: pede o microfone antes de ligar. */
+    private fun setWakeWord(enabled: Boolean) {
+        when {
+            !enabled -> WakeWord.disable(this)
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
+                WakeWord.enable(this)
+            else -> wakeMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     /** Pasta de memória: "Acesso a todos os arquivos" no Android 11+, permissão comum antes disso. */
     private fun requestMemoryFolder() {
         val intent = memory.accessIntent()
@@ -144,6 +158,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         speech = TextToSpeech(this, this)
         installRequested = intent?.getBooleanExtra(UpdateCheckWorker.EXTRA_INSTALL, false) == true
         UpdateCheckWorker.schedule(this, updater.autoUpdate)
+        WakeWord.load(this)
         MemoryOrganizer.schedule(this)
         if (Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {
             preferences.edit().putBoolean("asked_notifications", true).apply()
@@ -210,7 +225,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             getSharedPreferences("osone_config", 0).edit().putBoolean("dark_mode", enabled).apply()
                         }, onBack = { showSettings = false },
                         onPickUpdate = { pickUpdateApk.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
-                        diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
+                        diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true },
+                        onWakeWord = ::setWakeWord, overlayAllowed = bubblePermission,
+                        onOverlay = { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) })
                     else if (showRoutines) RoutinesScreen(routines, diagnostics,
                         onDiagnostics = { showDiagnostics = true }, onBack = { showRoutines = false },
                         onRunNow = { RoutineScheduler.runNow(this, it) },
@@ -295,6 +312,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         calendarGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
         memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
         RoutineStore.get(this).restoreFromFolder()
+        WakeWord.resume(this) // Volta a escutar depois de reiniciar o celular ou atualizar o app.
         viewModel.collectRoutineResults()
         viewModel.collectLiveTranscript()
         updater.resumeAfterPermission()
