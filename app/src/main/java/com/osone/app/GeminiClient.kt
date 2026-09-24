@@ -12,7 +12,8 @@ class GeminiHttpException(val status: Int) : Exception("O serviço respondeu HTT
 /** Resposta por SSE: o primeiro trecho aparece no chat sem aguardar o texto inteiro. */
 class GeminiClient {
     fun streamAnswer(key: String, model: ChatModel, history: List<ChatMessage>, mode: ThinkingMode,
-        attachment: JSONObject? = null,
+        attachment: JSONObject? = null, systemPrompt: String = DEFAULT_SYSTEM, readTimeoutMs: Int = 45_000,
+        googleSearch: Boolean = false,
         onPartial: (String) -> Unit): String {
         val contents = JSONArray()
         history.takeLast(12).forEachIndexed { index, message ->
@@ -22,8 +23,7 @@ class GeminiClient {
             contents.put(JSONObject().put("role", message.role).put("parts", parts))
         }
         val request = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text",
-                "Você é OSTIE, assistente pessoal de Henrique no Android. Responda naturalmente no idioma do usuário. Dê respostas claras, específicas e úteis; use o contexto da conversa, e apresente passos práticos quando necessários. Evite texto genérico e repetição. Seja honesto sobre incertezas. Não diga que abriu aplicativos, acessou arquivos ou usou ferramentas se não fez isso."))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
             .put("contents", contents)
         val thinking = if (model == ChatModel.GEMINI_25) JSONObject().put("thinkingBudget", when (mode) {
             ThinkingMode.FAST -> 0
@@ -31,12 +31,14 @@ class GeminiClient {
             ThinkingMode.DEEP -> 4096
         }) else JSONObject().put("thinkingLevel", mode.value)
         request.put("generationConfig", JSONObject().put("thinkingConfig", thinking))
+        // Grounding com a Pesquisa Google: o modelo decide quando buscar; usa a mesma chave Gemini.
+        if (googleSearch) request.put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
         val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/${model.id}:streamGenerateContent?alt=sse")
             .openConnection() as HttpURLConnection)
         return try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
-            connection.readTimeout = 45_000
+            connection.readTimeout = readTimeoutMs
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.setRequestProperty("Accept", "text/event-stream")
@@ -46,9 +48,17 @@ class GeminiClient {
             if (status !in 200..299) throw GeminiHttpException(status)
 
             val answer = StringBuilder()
+            val sources = LinkedHashMap<String, String>()
             fun processEvent(data: String) {
                 if (data.isBlank()) return
                 val candidate = JSONObject(data).optJSONArray("candidates")?.optJSONObject(0)
+                candidate?.optJSONObject("groundingMetadata")?.optJSONArray("groundingChunks")?.let { chunks ->
+                    for (i in 0 until chunks.length()) {
+                        val web = chunks.optJSONObject(i)?.optJSONObject("web") ?: continue
+                        val uri = web.optString("uri")
+                        if (uri.isNotBlank()) sources.putIfAbsent(uri, web.optString("title").ifBlank { uri })
+                    }
+                }
                 val parts = candidate?.optJSONObject("content")?.optJSONArray("parts") ?: return
                 for (i in 0 until parts.length()) {
                     val part = parts.optJSONObject(i) ?: continue
@@ -68,7 +78,14 @@ class GeminiClient {
                 }
                 processEvent(event.toString())
             }
-            answer.toString().trim().ifEmpty { throw IllegalStateException("O modelo não enviou resposta em texto.") }
+            val text = answer.toString().trim().ifEmpty { throw IllegalStateException("O modelo não enviou resposta em texto.") }
+            if (sources.isEmpty()) text else (text + "\n\nFontes:\n" + sources.entries.take(5)
+                .joinToString("\n") { (uri, title) -> "• $title — $uri" })
+                .also(onPartial)
         } finally { connection.disconnect() }
+    }
+
+    companion object {
+        const val DEFAULT_SYSTEM = "Você é OSTIE, assistente pessoal do usuário no Android. Responda naturalmente no idioma do usuário. Dê respostas claras, específicas e úteis; use o contexto da conversa, e apresente passos práticos quando necessários. Evite texto genérico e repetição. Seja honesto sobre incertezas. Não diga que abriu aplicativos, acessou arquivos ou usou ferramentas se não fez isso."
     }
 }

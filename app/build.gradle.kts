@@ -12,8 +12,9 @@ android {
         applicationId = "com.osone.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.14.0"
+        // A CI publica cada versão com um número crescente; localmente vale o padrão.
+        versionCode = System.getenv("OSTIE_VERSION_CODE")?.toIntOrNull() ?: 15
+        versionName = System.getenv("OSTIE_VERSION_NAME") ?: "0.15.0"
     }
     signingConfigs {
         create("stable") {
@@ -53,6 +54,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

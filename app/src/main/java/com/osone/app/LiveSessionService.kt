@@ -120,13 +120,18 @@ class LiveSessionService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val close = PendingIntent.getService(this, 2, Intent(this, LiveSessionService::class.java).setAction(STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val mute = PendingIntent.getService(this, 3, Intent(this, LiveSessionService::class.java).setAction(MUTE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_ostie_notification)
             .setContentTitle(if (showingCamera) "OSTIE · voz e câmera ativas"
                 else if (sharing) "OSTIE · voz e tela ativas" else "OSTIE · voz ativa")
-            .setContentText("Toque para voltar à conversa. Encerrar para desligar o microfone.")
+            .setContentText("Toque para voltar à conversa. Encerrar desliga o microfone.")
+            .setColor(0xFF2F6BFF.toInt())
+            .setCategory(Notification.CATEGORY_CALL)
             .setContentIntent(open).setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Encerrar", close).build()
+            .addAction(Notification.Action.Builder(null, "Silenciar / ativar", mute).build())
+            .addAction(Notification.Action.Builder(null, "Encerrar", close).build()).build()
     }
 
     private fun showBubble() {

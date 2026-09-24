@@ -11,6 +11,7 @@ class ChatProviderHttpException(val provider: ChatProvider, val status: Int) :
 /** Chat Completions compatível com OpenAI, com streaming SSE para OpenRouter e Groq. */
 class ChatCompletionClient {
     fun streamAnswer(provider: ChatProvider, key: String, model: String, history: List<ChatMessage>,
+        systemPrompt: String = DEFAULT_SYSTEM, readTimeoutMs: Int = 45_000,
         onPartial: (String) -> Unit): String {
         require(provider != ChatProvider.GEMINI)
         val endpoint = when (provider) {
@@ -18,8 +19,7 @@ class ChatCompletionClient {
             ChatProvider.GROQ -> "https://api.groq.com/openai/v1/chat/completions"
             ChatProvider.GEMINI -> error("Use GeminiClient para Gemini")
         }
-        val messages = JSONArray().put(JSONObject().put("role", "system").put("content",
-            "Você é OSTIE, assistente pessoal de Henrique. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."))
+        val messages = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt))
         history.takeLast(12).forEach { message ->
             messages.put(JSONObject().put("role", if (message.role == "model") "assistant" else "user")
                 .put("content", message.text))
@@ -29,7 +29,7 @@ class ChatCompletionClient {
         return try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
-            connection.readTimeout = 45_000
+            connection.readTimeout = readTimeoutMs
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.setRequestProperty("Accept", "text/event-stream")
@@ -58,5 +58,9 @@ class ChatCompletionClient {
             }
             answer.toString().trim().ifEmpty { throw IllegalStateException("${provider.label} não enviou texto. Confira o modelo escolhido.") }
         } finally { connection.disconnect() }
+    }
+
+    companion object {
+        const val DEFAULT_SYSTEM = "Você é OSTIE, assistente pessoal do usuário. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."
     }
 }
