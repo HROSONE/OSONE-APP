@@ -3,6 +3,7 @@ package com.osone.app
 import android.Manifest
 import android.app.RemoteInput
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -23,7 +24,10 @@ import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /** Mantém as notificações ativas disponíveis ao agente, só depois que o usuário ativar o acesso. */
 class OstieNotificationListener : NotificationListenerService() {
@@ -64,6 +68,9 @@ class PhoneActions(private val context: Context) {
             field("titulo", "STRING", "Título"), field("inicio", "STRING", "Data e hora no formato AAAA-MM-DD HH:MM"),
             field("duracao_minutos", "INTEGER", "Duração (padrão 60)"), field("local", "STRING", "Local (opcional)"),
             field("descricao", "STRING", "Detalhes (opcional)")), listOf("titulo", "inicio")))
+        put(tool("read_calendar", "Leia os compromissos da agenda do aparelho (exige permissão de agenda).", listOf(
+            field("dias", "INTEGER", "Quantos dias a partir de hoje; 1 = só hoje (padrão)"),
+            field("busca", "STRING", "Filtrar pelo título (opcional)"))))
         put(tool("find_contact", "Procure um contato salvo e seus números de telefone.", listOf(
             field("nome", "STRING", "Nome ou parte do nome")), listOf("nome")))
         put(tool("dial", "Abra o discador com o número pronto; o usuário toca para ligar.", listOf(
@@ -146,6 +153,7 @@ class PhoneActions(private val context: Context) {
                 .putExtra(CalendarContract.Events.DESCRIPTION, args.optString("descricao").take(1000)),
                 "Agenda aberta com o evento preenchido. O usuário precisa tocar em salvar.")
         }
+        "read_calendar" -> readCalendar(args.optInt("dias", 1).coerceIn(1, 31), args.optString("busca").trim())
         "find_contact" -> findContacts(args.optString("nome"))
         "dial" -> start(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone(args)))),
             "Discador aberto com o número. O usuário toca para ligar.")
@@ -272,6 +280,36 @@ class PhoneActions(private val context: Context) {
             else JSONObject().put("contatos", found)
     }
 
+    private fun readCalendar(days: Int, search: String): JSONObject {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED)
+            return JSONObject().put("erro", "Sem permissão de agenda. Peça ao usuário para tocar em Agenda no painel do Live.")
+        val start = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
+            ContentUris.appendId(it, start); ContentUris.appendId(it, start + days * 86_400_000L)
+        }.build()
+        val local = SimpleDateFormat("EEE dd/MM HH:mm", Locale("pt", "BR"))
+        // Eventos de dia inteiro são gravados em UTC.
+        val allDayFormat = SimpleDateFormat("EEE dd/MM", Locale("pt", "BR")).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        val items = JSONArray()
+        context.contentResolver.query(uri, arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.EVENT_LOCATION),
+            null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
+            while (cursor.moveToNext() && items.length() < 30) {
+                val title = cursor.getString(0).orEmpty()
+                if (search.isNotEmpty() && !title.contains(search, true)) continue
+                val allDay = cursor.getInt(3) == 1
+                items.put(JSONObject().put("titulo", title.take(150))
+                    .put("quando", if (allDay) allDayFormat.format(Date(cursor.getLong(1))) + " (dia inteiro)"
+                        else local.format(Date(cursor.getLong(1))) + " até " + SimpleDateFormat("HH:mm", Locale.US).format(Date(cursor.getLong(2))))
+                    .put("local", cursor.getString(4).orEmpty().take(150)))
+            }
+        }
+        return JSONObject().put("periodo", if (days == 1) "hoje" else "próximos $days dias").put("eventos", items)
+            .apply { if (items.length() == 0) put("resultado", "Nenhum compromisso no período.") }
+    }
+
     private fun readNotifications(filter: String, limit: Int): JSONObject {
         val listener = OstieNotificationListener.active
             ?: return JSONObject().put("erro", "Acesso a notificações desativado. Peça ao usuário para tocar em Notificações no painel do Live.")
@@ -337,7 +375,7 @@ class PhoneActions(private val context: Context) {
         JSONObject().put("_name", name).put("type", type).put("description", description)
 
     private companion object {
-        val NAMES = setOf("set_alarm", "set_timer", "create_event", "find_contact", "dial", "compose_message", "navigate",
+        val NAMES = setOf("set_alarm", "set_timer", "create_event", "read_calendar", "find_contact", "dial", "compose_message", "navigate",
             "open_url", "share_text", "media_control", "flashlight", "read_notifications", "reply_notification",
             "memory_read", "memory_note", "memory_rewrite", "memory_forget", "set_user_name",
             "create_routine", "list_routines", "delete_routine")

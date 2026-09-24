@@ -16,7 +16,8 @@ import java.util.Locale
 /** Aba Rotinas: o que o OSTIE faz sozinho em horários marcados, e o que já entregou. */
 @Composable
 fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
-    onBack: () -> Unit, onRunNow: (Routine) -> Unit, onNeedNotifications: () -> Unit) {
+    onBack: () -> Unit, onRunNow: (Routine) -> Unit, onNeedNotifications: () -> Unit,
+    calendarAccess: Boolean, onCalendar: () -> Unit) {
     var creating by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Routine?>(null) }
     val format = remember { SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")) }
@@ -34,8 +35,15 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
                     onNeedNotifications()
                 }) else Button(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) { Text("Nova rotina") }
             }
+            if (!calendarAccess) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tarefas podem ler sua agenda, como num resumo da manhã.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onCalendar) { Text("Permitir agenda") }
+                }
+            }
             if (store.routines.isEmpty() && !creating) item {
-                Hint("Nenhuma rotina ainda. Crie aqui ou peça no Live: \"todo dia às 8h me dá as notícias\" ou \"me lembra às 18h de tomar o remédio\".")
+                Hint("Nenhuma rotina ainda. Crie aqui ou peça no Live: \"todo dia às 8h me diz minha agenda e as notícias\" ou \"me lembra às 18h de tomar o remédio\".")
             }
             items(store.routines, key = { it.id }) { routine ->
                 Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,

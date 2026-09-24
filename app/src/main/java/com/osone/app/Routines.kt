@@ -250,12 +250,13 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             val system = GeminiClient.DEFAULT_SYSTEM + UserProfile.get(context).identity(canSave = false) + memory.promptBlock() +
                 " Você está executando uma rotina agendada, sem conversa: entregue direto o resultado, curto, " +
                 "claro e pronto para ler numa notificação (no máximo 10 linhas), sem perguntas de volta."
+            val tools = AgentTools(context, background = true)
             val answer = withContext(Dispatchers.IO) {
-                TextModel.ask(context, "Agora é $now. Rotina \"${routine.title}\": ${routine.instruction}", system,
+                TextModel.ask(context, "Agora é $now. Rotina \"${routine.title}\": ${routine.instruction}", system + TOOLS_GUIDE,
                     googleSearch = context.getSharedPreferences("osone_config", 0).getBoolean("google_search", true),
-                    readTimeoutMs = 90_000)
+                    readTimeoutMs = 90_000, tools = tools)
             }
-            notify(context, routine, answer)
+            notify(context, routine, answer, tools.suggestions)
             RoutineStore.get(context).pushInbox(routine.title, answer)
             Result.success()
         } catch (failure: Exception) {
@@ -266,7 +267,7 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         }
     }
 
-    private fun notify(context: Context, routine: Routine, text: String) {
+    private fun notify(context: Context, routine: Routine, text: String, actions: List<Pair<String, Intent>> = emptyList()) {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context,
                 Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -281,6 +282,22 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             .setContentTitle(routine.title)
             .setContentText(text.lineSequence().firstOrNull { it.isNotBlank() }?.take(120) ?: text.take(120))
             .setStyle(Notification.BigTextStyle().bigText(text.take(3_000)))
-            .setContentIntent(open).setAutoCancel(true).build())
+            .setContentIntent(open).setAutoCancel(true)
+            .apply {
+                // Botões preparados pela rotina: abrem a tela pronta; enviar ou ligar fica com o usuário.
+                actions.forEachIndexed { index, (label, intent) ->
+                    val pending = PendingIntent.getActivity(context, routine.id.hashCode() * 4 + index + 1,
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    addAction(Notification.Action.Builder(null as android.graphics.drawable.Icon?, label, pending).build())
+                }
+            }.build())
+    }
+
+    private companion object {
+        const val TOOLS_GUIDE = " Use as ferramentas para buscar o que a rotina precisa: agenda (read_calendar), notificações, " +
+            "bateria, memória e pesquisa. Se a rotina pedir para avisar alguém, ligar, ir a algum lugar ou despertar, use " +
+            "suggest_action para deixar um botão pronto na notificação e diga no texto que ele está lá. Nada é enviado sem o " +
+            "toque do usuário. Se uma ferramenta devolver erro de permissão, diga em uma frase como liberar."
     }
 }

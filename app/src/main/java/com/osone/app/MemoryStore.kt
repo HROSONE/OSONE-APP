@@ -32,6 +32,7 @@ class MemoryStore private constructor(private val context: Context) {
 
         const val FOLDER = "OSTIE"
         const val FILE = "memoria.md"
+        const val BACKUP = "memoria-anterior.md"
         private const val LIMIT = 60_000
         val SECTIONS = listOf("Sobre o usuário", "Preferências", "Pessoas", "Rotina e agenda", "Projetos", "Anotações")
 
@@ -96,6 +97,12 @@ class MemoryStore private constructor(private val context: Context) {
         internal.writeText(value)
         persistent = if (hasFolderAccess()) try { folder.mkdirs(); shared.writeText(value); true } catch (_: Exception) { false } else false
         text = value
+    }
+
+    /** Cópia da versão anterior, antes de uma reorganização automática. */
+    fun backup(content: String) {
+        try { File(context.filesDir, BACKUP).writeText(content) } catch (_: Exception) { }
+        writeShared(BACKUP, content)
     }
 
     /** Outros arquivos do OSTIE na mesma pasta (ex.: rotinas.json); nulo sem permissão. */

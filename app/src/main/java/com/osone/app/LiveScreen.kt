@@ -30,8 +30,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /** Estado das permissões que ampliam o agente, mostrado no painel do Live. */
-class PhoneAccess(val notifications: Boolean, val contacts: Boolean, val memoryFolder: Boolean,
-    val onNotifications: () -> Unit, val onContacts: () -> Unit, val onMemory: () -> Unit)
+class PhoneAccess(val notifications: Boolean, val contacts: Boolean, val memoryFolder: Boolean, val calendar: Boolean,
+    val onNotifications: () -> Unit, val onContacts: () -> Unit, val onMemory: () -> Unit, val onCalendar: () -> Unit)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -284,6 +284,14 @@ private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, phone: P
         })
         SettingSwitch("Proteção de eco", live.echoGuard, live::updateEchoGuard,
             "No alto-falante, impede que a voz do OSTIE interrompa a si mesma. Fale mais alto para interromper. Com fones, fica desligada sozinha.")
+        if (live.echoGuard) {
+            LaunchedEffect(Unit) { live.refreshEchoCalibration() }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(live.echoCalibration, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                TextButton(onClick = live::resetEchoCalibration) { Text("Recalibrar") }
+            }
+        }
         SettingSwitch("Legendas", live.captions, live::updateCaptions, "Mostra o que você e o OSTIE falam.")
         SettingSwitch("Salvar conversa de voz no chat", live.saveTranscript, live::updateSaveTranscript,
             "Cada troca falada vira mensagem no chat escrito, que passa a lembrar do que foi dito.")
@@ -307,6 +315,9 @@ private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, phone: P
         PanelRow(OstieIcons.Call, "Contatos",
             if (phone.contacts) "Ligar e mandar mensagem pelo nome" else "Permitir encontrar contatos pelo nome",
             phone.onContacts, enabled = !phone.contacts, trailing = if (phone.contacts) OstieColors.Success else null)
+        PanelRow(OstieIcons.Calendar, "Agenda",
+            if (phone.calendar) "Ler compromissos ativado" else "Permitir ler os compromissos da agenda",
+            phone.onCalendar, enabled = !phone.calendar, trailing = if (phone.calendar) OstieColors.Success else null)
         PanelRow(OstieIcons.Document, "Memória",
             if (phone.memoryFolder) "Salva em Documentos/OSTIE · sobrevive a reinstalação" else "Permitir pasta de memória no celular",
             phone.onMemory, enabled = !phone.memoryFolder, trailing = if (phone.memoryFolder) OstieColors.Success else null)

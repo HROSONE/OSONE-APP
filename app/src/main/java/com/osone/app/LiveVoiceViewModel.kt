@@ -100,6 +100,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private var extrasAvailable = true
     /** Retomada de sessão: o servidor manda um identificador e a reconexão continua a mesma conversa. */
     @Volatile private var resumeHandle: String? = null
+    /** true depois que o handshake recusou a chave no cabeçalho. */
+    private var keyInUrl = false
     private var resumeModel: String? = null
     private var sentHandle = false
     /** Legendas do turno atual (transcrição da API Live). */
@@ -184,6 +186,21 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateFallback(enabled: Boolean) {
         fallback = enabled
         preferences.edit().putBoolean("live_fallback", enabled).apply()
+    }
+
+    /** Estado da calibração de eco, lido ao abrir o painel. */
+    var echoCalibration by mutableStateOf(readEchoCalibration().label)
+        private set
+
+    private fun readEchoCalibration() = EchoCalibration.fromJson(getApplication<Application>()
+        .getSharedPreferences(LiveAudioEngine.CALIBRATION_PREFS, 0).getString("calibration", null))
+
+    fun refreshEchoCalibration() { echoCalibration = readEchoCalibration().label }
+
+    fun resetEchoCalibration() {
+        audio?.resetCalibration()
+        getApplication<Application>().getSharedPreferences(LiveAudioEngine.CALIBRATION_PREFS, 0).edit().clear().apply()
+        echoCalibration = EchoCalibration().label
     }
 
     fun updateEchoGuard(enabled: Boolean) {
@@ -316,9 +333,11 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         reducedMode = LEVEL_NAMES.getOrNull(setupLevel)?.takeIf { setupLevel > 0 }
         heardFromModel = false
         status = if (reconnectOnce) "Reconectando ${model.label}…" else "Conectando ${model.label}…"
-        // Query encodificada; chave apenas em memória, sem logs ou mensagens de erro de rede.
-        val url = endpoint.toHttpUrl().newBuilder().scheme("https").addQueryParameter("key", apiKey).build()
-        val request = Request.Builder().url(url).build()
+        // Chave no cabeçalho, fora do endereço (que pode aparecer em logs de rede e proxies). Se o serviço
+        // recusar o cabeçalho no handshake, volta à chave no endereço até o app reiniciar.
+        val url = endpoint.toHttpUrl().newBuilder().scheme("https")
+            .apply { if (keyInUrl) addQueryParameter("key", apiKey) }.build()
+        val request = Request.Builder().url(url).apply { if (!keyInUrl) header("x-goog-api-key", apiKey) }.build()
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 main.post {
@@ -374,6 +393,12 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 main.post {
                     val code = response?.code
+                    if (code != null && code in HEADER_REFUSED && !keyInUrl && running && socket === webSocket && !ready) {
+                        keyInUrl = true
+                        diagnostics.record("Live", "O serviço recusou a chave no cabeçalho (HTTP $code); usando a chave no endereço.")
+                        connect()
+                        return@post
+                    }
                     val cause = when {
                         code != null -> "HTTP $code"
                         t is java.net.UnknownHostException -> "DNS ou internet indisponível"
@@ -390,6 +415,12 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 main.post {
                     val invalidKey = reason.contains("api key", true) || reason.contains("unauth", true) ||
                         reason.contains("permission denied", true)
+                    if (invalidKey && !keyInUrl && running && socket === webSocket && !ready) {
+                        keyInUrl = true
+                        diagnostics.record("Live", "O serviço não leu a chave no cabeçalho; usando a chave no endereço.")
+                        connect()
+                        return@post
+                    }
                     val quota = reason.contains("quota", true) || reason.contains("exhausted", true) ||
                         reason.contains("rate limit", true)
                     fail(webSocket, "WebSocket $code" + when {
@@ -462,6 +493,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     /** Legendas ao vivo; no fim do turno, a troca vai para o histórico do chat (se ativado). */
     private fun onTranscript(user: String, model: String, turnDone: Boolean) {
         if (!running) return
+        if (user.isNotBlank()) audio?.userSpoke()
         if (user.isNotEmpty()) { turnUser.append(user); captionUser = turnUser.toString().takeLast(240).trim() }
         if (model.isNotEmpty()) { turnModel.append(model); captionModel = turnModel.toString().takeLast(240).trim() }
         if (turnDone && (turnUser.isNotBlank() || turnModel.isNotBlank())) {
@@ -571,7 +603,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             stop(); status = "Áudio indisponível. Veja o diagnóstico."
                         } } },
                         onDiagnostic = { detail -> diagnostics.record("Áudio Live", detail) }
-                    ).also { it.muted = muted; it.echoGuard = echoGuard; it.start() }
+                    ).also { it.muted = muted; it.echoGuard = echoGuard; it.canConfirm = extrasAvailable; it.start() }
                 } catch (failure: Exception) {
                     diagnostics.record("Áudio Live", "Não iniciou microfone/alto-falante (${failure.javaClass.simpleName}).")
                     stop(); status = "Não foi possível iniciar o áudio."
@@ -654,6 +686,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private companion object {
+        val HEADER_REFUSED = setOf(400, 401, 403)
         val LEVEL_NAMES = listOf("com configuração completa", "sem Pesquisa Google embutida",
             "sem legendas e retomada de conversa", "só com as ferramentas básicas", "somente voz")
         const val AGENT_GUIDE = " Para alarmes, timers, agenda, contatos, ligações, mensagens, rotas, mídia, lanterna, links e compartilhar, prefira as ferramentas diretas (set_alarm, set_timer, create_event, find_contact, dial, compose_message, navigate, media_control, flashlight, open_url, share_text) em vez de tocar na tela; use a acessibilidade só quando não houver ferramenta direta. Para ligar ou mandar mensagem a alguém pelo nome, use find_contact antes. Mensagens e ligações abrem prontas e o usuário confirma o envio; reply_notification pede confirmação na tela, então avise que ele precisa confirmar. Use read_notifications quando ele perguntar o que chegou. Você tem uma memória própria em Documentos/OSTIE/memoria.md, organizada em seções: sempre que aprender algo duradouro e útil sobre o usuário (preferências, pessoas, rotina, projetos, combinados), anote por conta própria com memory_note, sem pedir permissão e sem anunciar cada anotação; quando uma seção ficar repetida ou desatualizada, reorganize com memory_rewrite; se ele pedir para esquecer, use memory_forget. Nunca anote senhas, códigos, dados bancários ou documentos. Para coisas repetidas ou em horário marcado (\"todo dia às 8h me dá as notícias\", \"me lembra às 18h de tomar remédio\"), crie uma rotina com create_routine: tipo lembrete para avisos fixos, tipo tarefa quando precisar pesquisar ou escrever algo na hora; confirme horário e dias ao usuário."

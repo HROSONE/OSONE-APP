@@ -18,7 +18,7 @@ object TextModel {
 
     /** Chamada bloqueante (rodar fora da thread principal), com o fallback Gemini se ligado. */
     fun ask(context: Context, prompt: String, system: String, googleSearch: Boolean = false,
-        readTimeoutMs: Int = 180_000, onPartial: (String) -> Unit = {}): String {
+        readTimeoutMs: Int = 180_000, tools: AgentTools? = null, onPartial: (String) -> Unit = {}): String {
         val provider = provider(context)
         val preferences = preferences(context)
         val key = SecureKeyStore(context, when (provider) {
@@ -34,21 +34,49 @@ object TextModel {
         val selected = ChatModel.fromId(preferences.getString("model", null))
         val mode = ThinkingMode.fromValue(preferences.getString("thinking_mode", null))
         val choices = ChatModel.candidates(selected, preferences.getBoolean("chat_fallback", true))
-        var search = googleSearch
         for ((index, choice) in choices.withIndex()) {
             try {
-                return try {
-                    GeminiClient().streamAnswer(key, choice, history, mode, null, system, readTimeoutMs,
-                        googleSearch = search, onPartial = onPartial)
-                } catch (failure: GeminiHttpException) {
-                    if (!search || failure.status != 400) throw failure
-                    search = false // Modelo recusou a pesquisa: responde sem ela.
-                    GeminiClient().streamAnswer(key, choice, history, mode, null, system, readTimeoutMs, onPartial = onPartial)
-                }
+                return gemini(key, choice, history, mode, null, system, readTimeoutMs, googleSearch, tools,
+                    onDowngrade = { AppDiagnostics.get(context).record("Modelo de texto", it) }, onPartial = onPartial)
             } catch (failure: GeminiHttpException) {
                 if (!failure.allowsFallback || index == choices.lastIndex) throw failure
             }
         }
         throw IllegalStateException("Nenhum modelo Gemini respondeu.")
+    }
+
+    /** Combinação de ferramentas que cada modelo aceitou nesta execução do app (índice do plano). */
+    private val acceptedPlan = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * Uma resposta Gemini com as ferramentas do app e a Pesquisa Google. Se o modelo recusar a combinação
+     * (HTTP 400), troca a pesquisa embutida pela ferramenta web_search e, por fim, responde sem ferramentas.
+     */
+    fun gemini(key: String, model: ChatModel, history: List<ChatMessage>, mode: ThinkingMode, attachment: org.json.JSONObject?,
+        system: String, readTimeoutMs: Int, googleSearch: Boolean, tools: AgentTools?,
+        onDowngrade: (String) -> Unit = {}, onPartial: (String) -> Unit): String {
+        val plans = buildList<Pair<Boolean, org.json.JSONArray?>> {
+            if (tools != null) {
+                add(googleSearch to tools.declarations(webSearch = false))
+                if (googleSearch) add(false to tools.declarations(webSearch = true))
+            } else if (googleSearch) add(true to null)
+            add(false to null)
+        }
+        val planKey = "${model.id}:${tools != null}:$googleSearch"
+        var failure: GeminiHttpException? = null
+        for (index in (acceptedPlan[planKey] ?: 0) until plans.size) {
+            val (search, functions) = plans[index]
+            try {
+                return GeminiClient().streamAnswer(key, model, history, mode, attachment, system, readTimeoutMs,
+                    googleSearch = search, functions = functions, runTool = tools?.let { it::run }, onPartial = onPartial)
+                    .also { acceptedPlan[planKey] = index }
+            } catch (refused: GeminiHttpException) {
+                if (refused.status != 400 || index == plans.lastIndex) throw refused
+                failure = refused
+                onDowngrade("${model.label} recusou " + (if (functions != null && search) "ferramentas com a Pesquisa Google"
+                    else if (functions != null) "as ferramentas do app" else "a Pesquisa Google") + " (HTTP 400); tentando sem.")
+            }
+        }
+        throw failure ?: IllegalStateException("Nenhuma combinação de ferramentas funcionou.")
     }
 }

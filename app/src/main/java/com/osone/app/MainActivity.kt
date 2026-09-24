@@ -49,6 +49,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val contactsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         contactsGranted = granted
     }
+    private var calendarGranted by mutableStateOf(false)
+    private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        calendarGranted = granted
+    }
     private val legacyStoragePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         memory.refresh()
     }
@@ -140,6 +144,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         speech = TextToSpeech(this, this)
         installRequested = intent?.getBooleanExtra(UpdateCheckWorker.EXTRA_INSTALL, false) == true
         UpdateCheckWorker.schedule(this, updater.autoUpdate)
+        MemoryOrganizer.schedule(this)
         if (Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {
             preferences.edit().putBoolean("asked_notifications", true).apply()
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -166,10 +171,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             OstieTheme(darkMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (showLive) LiveScreen(live, codeAuthor, diagnostics, bubblePermission, accessibilityEnabled,
-                        phone = PhoneAccess(notificationsAccess, contactsGranted, memory.persistent,
+                        phone = PhoneAccess(notificationsAccess, contactsGranted, memory.persistent, calendarGranted,
                             onNotifications = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                             onContacts = { contactsPermission.launch(Manifest.permission.READ_CONTACTS) },
-                            onMemory = ::requestMemoryFolder),
+                            onMemory = ::requestMemoryFolder,
+                            onCalendar = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) }),
                         onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         onWriting = { showWriting = true; showLive = false },
                         onOverlay = {
@@ -212,7 +218,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this,
                                     Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        })
+                        }, calendarAccess = calendarGranted,
+                        onCalendar = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) })
                     else if (showWriting) WritingScreen(writing, live, codeAuthor, diagnostics,
                         onDiagnostics = { showDiagnostics = true },
                         onBack = { showWriting = false },
@@ -285,6 +292,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         accessibilityEnabled = OsoneAccessibilityService.active != null
         notificationsAccess = OstieNotificationListener.enabled(this)
         contactsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        calendarGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
         memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
         RoutineStore.get(this).restoreFromFolder()
         viewModel.collectRoutineResults()
