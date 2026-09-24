@@ -42,6 +42,15 @@ jobs:
           printf '%s' "$OSTIE_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$OSTIE_SIGNING_KEYSTORE_FILE"
           chmod 600 "$OSTIE_SIGNING_KEYSTORE_FILE"
           gradle :app:assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ostie-release-assinado
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ostie-debug-assinatura-temporaria
+          path: app/build/outputs/apk/debug/*.apk
       - name: Publicar atualização no canal oficial
         # Só a main (ou execução manual) vira atualização para os aparelhos.
         if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
@@ -78,12 +87,3 @@ jobs:
               --notes "Usado pelo app OSTIE para procurar versões novas. Não é um instalador do OSONE desktop."
           fi
           gh release upload ostie-latest latest.json --repo "$RELEASES_REPO" --clobber
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ostie-release-assinado
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ostie-debug-assinatura-temporaria
-          path: app/build/outputs/apk/debug/*.apk
