@@ -12,15 +12,19 @@ O Android instala uma versão por cima da anterior somente quando o `application
 
 ## Atualização automática (canal oficial)
 
-O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada num **repositório público separado, que contém apenas APKs e o `latest.json`** (sem código nem segredos). O app já vem apontando para esse canal.
+O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada no repositório público **`zerobob623-bit/OSONE-AI-releases`**, o mesmo dos instaladores do OSONE desktop, sem código nem segredos.
+
+Para não misturar os dois apps:
+
+- cada versão do OSTIE vira um Release `ostie-v<versão>` marcado como **pré-lançamento** e nunca como *latest*, então o atualizador do OSONE desktop não o enxerga;
+- o app lê um Release fixo, `ostie-latest`, cujo `latest.json` é substituído a cada versão: `https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json`.
 
 Configuração, feita uma única vez:
 
-1. Crie o repositório público `zerobob623-bit/ostie-releases` marcando **Add a README file** (o Release precisa de um commit inicial). Para outro nome, crie a variável de Actions `OSTIE_RELEASES_REPO` com `dono/nome`.
-2. Crie um token *fine-grained* em **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**: acesso somente ao repositório `ostie-releases`, permissão **Contents: Read and write**.
-3. Em **OSONE-APP → Settings → Secrets and variables → Actions**, crie o secret `OSTIE_RELEASES_TOKEN` com esse token.
-4. Faça merge na `main` (ou rode o workflow **Android** manualmente). A CI numera a versão automaticamente (`versionCode = 100 + número da execução`), assina, publica `ostie-<versão>.apk` e `latest.json` e marca como *latest*.
-5. No celular, instale uma vez o artefato **ostie-release-assinado** (desinstalando antes uma versão de depuração, se for o caso). Daí em diante:
+1. Crie um token *fine-grained* em **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**, com acesso somente ao repositório `OSONE-AI-releases` e permissão **Contents: Read and write**.
+2. Em **OSONE-APP → Settings → Secrets and variables → Actions**, crie o secret `OSTIE_RELEASES_TOKEN` com esse token. (Para usar outro repositório, crie a variável de Actions `OSTIE_RELEASES_REPO` com `dono/nome` e ajuste `UpdateFeed.OFFICIAL` no app.)
+3. Faça merge na `main` ou rode o workflow **Android** manualmente. A CI numera a versão automaticamente (`versionCode = 100 + número da execução`), assina e publica `ostie-<versão>.apk` e o `latest.json`.
+4. No celular, instale uma vez o artefato **ostie-release-assinado** (desinstalando antes uma versão de depuração, se for o caso). Daí em diante:
    - o app procura versões ao abrir (no máximo a cada 6 h) e uma vez por dia em segundo plano;
    - avisa com "Atualizar agora" ou por notificação; um toque baixa, confere SHA-256, pacote, versão e certificado, e instala;
    - no Android 12+, quando a versão anterior também foi instalada pelo próprio OSTIE, o Android pode aplicar a atualização sem pedir confirmação. Na primeira vez (e em versões anteriores do Android), confirme no instalador.
@@ -33,7 +37,7 @@ Formato do `latest.json` (gerado pela CI; útil para canais próprios):
 {
   "versionCode": 140,
   "versionName": "0.15.40",
-  "apkUrl": "https://github.com/zerobob623-bit/ostie-releases/releases/download/v0.15.40/ostie-140.apk",
+  "apkUrl": "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-v0.15.40/ostie-140.apk",
   "sha256": "64 dígitos hexadecimais do SHA-256 do APK",
   "notes": "Novidades desta versão"
 }

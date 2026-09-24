@@ -274,9 +274,13 @@ class AppUpdater(private val activity: Activity) {
     }
 }
 
-/** Canal de atualizações: o oficial vem da CI (repositório público só com APKs assinados). */
+/**
+ * Canal de atualizações: a CI publica no repositório público OSONE-AI-releases, compartilhado com o
+ * OSONE desktop. O OSTIE usa um Release fixo (ostie-latest) marcado como pré-lançamento, para nunca
+ * virar o "latest" que o atualizador do desktop lê.
+ */
 object UpdateFeed {
-    const val OFFICIAL = "https://github.com/zerobob623-bit/ostie-releases/releases/latest/download/latest.json"
+    const val OFFICIAL = "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json"
 
     fun address(context: Context): String = context.getSharedPreferences("ostie_updates", 0)
         .getString("feed_url", "").orEmpty().trim().ifEmpty { OFFICIAL }
