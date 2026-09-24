@@ -299,6 +299,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("responseModalities", JSONArray().put("AUDIO"))
                         .put("speechConfig", JSONObject().put("voiceConfig", JSONObject()
                             .put("prebuiltVoiceConfig", JSONObject().put("voiceName", voice))))
+                    // Variantes "extended thinking" exigem o nível de raciocínio (senão fecham com 1007).
+                    if (model.id.contains("thinking")) generation.put("thinkingConfig", JSONObject().put("thinkingLevel", "medium"))
                     val setup = JSONObject().put("setup", JSONObject()
                         .put("model", "models/${model.id}")
                         .put("generationConfig", generation)
@@ -532,6 +534,14 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         // Fechamento antes de o modelo responder qualquer coisa costuma ser a configuração recusada
         // (ferramentas, pesquisa). Reduz um degrau e tenta o mesmo modelo de novo; cota não conta.
         val model = active
+        if (model != null && setupLevel < 1 && LiveCloseReason.isSearchQuota(cause, wasReady, heardFromModel,
+                System.currentTimeMillis() - readyAt, searchAvailable)) {
+            preferences.edit().putInt("live_level_${model.id}", 1)
+                .putLong("live_level_at_${model.id}", System.currentTimeMillis()).apply()
+            diagnostics.record("Pesquisa Google", "${model.label}: sem cota de pesquisa no Live desta chave; reconectando sem pesquisa.")
+            connect()
+            return
+        }
         if (model != null && setupLevel < 3 && LiveCloseReason.isSetupRejection(cause, wasReady,
                 heardFromModel, System.currentTimeMillis() - readyAt)) {
             val next = setupLevel + 1

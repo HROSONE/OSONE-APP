@@ -26,4 +26,12 @@ class LiveCloseReasonTest {
             LiveCloseReason.excerpt("bad   request key=abc123 from AIzaSyA1234567890abcdef"))
         assertEquals("", LiveCloseReason.excerpt("  "))
     }
+
+    @Test fun searchQuotaAtStartDropsOnlyTheSearch() {
+        val quota = "WebSocket 1011 (cota esgotada) · You exceeded your current quota"
+        assertTrue(LiveCloseReason.isSearchQuota(quota, false, false, 0, searchOn = true))
+        assertFalse(LiveCloseReason.isSearchQuota(quota, false, false, 0, searchOn = false))
+        assertFalse(LiveCloseReason.isSearchQuota(quota, true, true, 5_000, searchOn = true))
+        assertFalse(LiveCloseReason.isSearchQuota("WebSocket 1011 (erro interno do serviço)", false, false, 0, searchOn = true))
+    }
 }

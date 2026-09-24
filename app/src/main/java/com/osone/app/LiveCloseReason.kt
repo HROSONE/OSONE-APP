@@ -17,6 +17,15 @@ object LiveCloseReason {
      * Fechou antes de o modelo responder qualquer coisa (ou ainda no setup) com código de recusa:
      * provavelmente o modelo não aceitou parte da configuração. Cota e chave não se resolvem assim.
      */
+    /**
+     * Cota esgotada logo no início com a Pesquisa Google ligada: no nível gratuito, os modelos Live 3.x
+     * recusam a pesquisa com "You exceeded your current quota", mesmo com cota de voz sobrando.
+     */
+    fun isSearchQuota(cause: String, wasReady: Boolean, heardFromModel: Boolean, msSinceReady: Long, searchOn: Boolean): Boolean {
+        if (!searchOn || !cause.contains("(cota")) return false
+        return !wasReady || (!heardFromModel && msSinceReady < 20_000)
+    }
+
     fun isSetupRejection(cause: String, wasReady: Boolean, heardFromModel: Boolean, msSinceReady: Long): Boolean {
         if (cause.contains("(cota") || cause.contains("(chave")) return false
         val early = !wasReady || (!heardFromModel && msSinceReady < 20_000)
