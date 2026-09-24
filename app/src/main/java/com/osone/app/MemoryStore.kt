@@ -58,8 +58,11 @@ class MemoryStore private constructor(private val context: Context) {
 
     val location: String get() = "Documentos/$FOLDER/$FILE"
 
-    fun hasFolderAccess(): Boolean = if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
+    // Sem armazenamento externo montado, a checagem pode falhar: a memória segue só dentro do app.
+    fun hasFolderAccess(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
         else ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    } catch (_: Exception) { false }
 
     /** Tela do Android para "Acesso a todos os arquivos" (Android 11+). */
     fun accessIntent(): Intent? = if (Build.VERSION.SDK_INT >= 30)
