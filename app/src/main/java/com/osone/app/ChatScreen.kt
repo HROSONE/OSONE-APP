@@ -34,6 +34,9 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
     var draft by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
+    LaunchedEffect(viewModel.incomingText) {
+        viewModel.incomingText?.let { shared -> draft = if (draft.isBlank()) shared else "$draft\n$shared"; viewModel.consumeIncoming() }
+    }
     LaunchedEffect(viewModel.messages.size) {
         if (viewModel.messages.isNotEmpty()) scroll.animateScrollToItem(viewModel.messages.lastIndex)
     }

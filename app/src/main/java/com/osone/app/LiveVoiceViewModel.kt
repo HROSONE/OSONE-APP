@@ -30,6 +30,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private val localTools = AndroidLocalTools(application)
     private val writing = WritingWorkspace.get(application)
     private val codeAuthor = CodeAuthor.get(application)
+    private val phoneActions = PhoneActions(application)
+    private val memory = MemoryStore.get(application)
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -132,6 +134,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         retriedWithoutTools = false
         localToolsAvailable = true
         searchAvailable = preferences.getBoolean("google_search", true)
+        memory.refresh() // Relê a pasta: pode ter sido editada fora do app ou restaurada após reinstalação.
         attempts = emptyList()
         screenFramesSent = 0
         screenFramesCaptured = 0
@@ -246,10 +249,13 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("generationConfig", generation)
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando Henrique liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou. Quando a pergunta depender de informação atual ou que você não sabe com certeza (notícias, preços, placares, clima, horários, lançamentos), use a Pesquisa Google e diga de onde veio a informação.")))))
+                            .put("text", "Você é OSTIE, assistente de Henrique no Android. Converse naturalmente em português brasileiro. Quando Henrique pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando Henrique pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando Henrique liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou. Quando a pergunta depender de informação atual ou que você não sabe com certeza (notícias, preços, placares, clima, horários, lançamentos), use a Pesquisa Google e diga de onde veio a informação." + AGENT_GUIDE + memory.promptBlock())))))
                     val tools = JSONArray()
                     if (localToolsAvailable) tools.put(JSONObject().put("functionDeclarations", localTools.declarations()
-                        .put(writeDocumentDeclaration()).put(requestCodeDeclaration())))
+                        .put(writeDocumentDeclaration()).put(requestCodeDeclaration()).also { list ->
+                            val direct = phoneActions.declarations()
+                            for (i in 0 until direct.length()) list.put(direct.get(i))
+                        }))
                     if (searchAvailable) tools.put(JSONObject().put("googleSearch", JSONObject()))
                     if (tools.length() > 0) setup.getJSONObject("setup").put("tools", tools)
                     if (!webSocket.send(setup.toString())) fail(webSocket, "envio da configuração falhou")
@@ -350,6 +356,11 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             val name = action.optString("name")
             val args = action.optJSONObject("args") ?: JSONObject()
             val id = if (action.has("id")) action.optString("id") else null
+            if (phoneActions.handles(name)) {
+                // Ações diretas; as sensíveis só respondem depois da confirmação na tela.
+                phoneActions.execute(name, args) { answer -> sendToolResponse(ws, name, id, answer) }
+                continue
+            }
             if (name == "request_code") {
                 // Responde só depois que Henrique escolher quem escreve o código.
                 codeAuthor.request(id, args) { answer -> sendToolResponse(ws, name, id, answer) }
@@ -484,6 +495,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             stop()
             status = "Nenhum modelo Live conectou. Veja o diagnóstico abaixo."
         }
+    }
+
+    private companion object {
+        const val AGENT_GUIDE = " Para alarmes, timers, agenda, contatos, ligações, mensagens, rotas, mídia, lanterna, links e compartilhar, prefira as ferramentas diretas (set_alarm, set_timer, create_event, find_contact, dial, compose_message, navigate, media_control, flashlight, open_url, share_text) em vez de tocar na tela; use a acessibilidade só quando não houver ferramenta direta. Para ligar ou mandar mensagem a alguém pelo nome, use find_contact antes. Mensagens e ligações abrem prontas e Henrique confirma o envio; reply_notification pede confirmação na tela, então avise que ele precisa confirmar. Use read_notifications quando ele perguntar o que chegou. Você tem uma memória própria em Documentos/OSTIE/memoria.md, organizada em seções: sempre que aprender algo duradouro e útil sobre Henrique (preferências, pessoas, rotina, projetos, combinados), anote por conta própria com memory_note, sem pedir permissão e sem anunciar cada anotação; quando uma seção ficar repetida ou desatualizada, reorganize com memory_rewrite; se ele pedir para esquecer, use memory_forget. Nunca anote senhas, códigos, dados bancários ou documentos."
     }
 
     override fun onCleared() { stop(); client.dispatcher.executorService.shutdown(); super.onCleared() }

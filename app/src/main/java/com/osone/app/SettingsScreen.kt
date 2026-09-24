@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuthor: CodeAuthor, updater: AppUpdater,
-    darkMode: Boolean, onDarkMode: (Boolean) -> Unit, onBack: () -> Unit,
+    memory: MemoryStore, darkMode: Boolean, onMemoryFolder: () -> Unit, onDarkMode: (Boolean) -> Unit, onBack: () -> Unit,
     onPickUpdate: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit) {
     val scope = rememberCoroutineScope()
     var confirmClear by remember { mutableStateOf(false) }
@@ -92,6 +92,31 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                         label = { Text("Canal personalizado (vazio = oficial)") })
                     OutlinedButton(onClick = onPickUpdate, enabled = !updater.busy) { Text("Instalar APK já baixado") }
                     Hint("O Android só atualiza se o APK tiver a mesma assinatura da versão instalada.")
+                }
+            }
+            SectionCard("Memória do OSTIE", OstieIcons.Document) {
+                var editing by remember { mutableStateOf(false) }
+                var draft by remember(memory.text) { mutableStateOf(memory.text) }
+                if (memory.persistent) Text("Salva em ${memory.location}", color = OstieColors.Success,
+                    style = MaterialTheme.typography.bodyMedium)
+                else {
+                    Hint("Hoje a memória está só dentro do app e some se ele for desinstalado. Permita a pasta para o OSTIE criar ${memory.location}, que ele reencontra sozinho após reinstalar.")
+                    Button(onClick = onMemoryFolder) { Text("Permitir pasta de memória") }
+                }
+                Hint("O OSTIE anota por conta própria fatos, preferências, pessoas e projetos, e reorganiza as seções. Você pode ler e editar aqui ou em qualquer editor de texto.")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { editing = !editing; draft = memory.text }) {
+                        Text(if (editing) "Fechar" else "Ver e editar")
+                    }
+                    TextButton(onClick = memory::refresh) { Text("Recarregar") }
+                }
+                if (editing) {
+                    OutlinedTextField(value = draft, onValueChange = { draft = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 360.dp),
+                        shape = MaterialTheme.shapes.medium, textStyle = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { memory.save(draft); editing = false }, enabled = draft != memory.text) {
+                        Text("Salvar memória")
+                    }
                 }
             }
             SectionCard("Dados", OstieIcons.Delete) {

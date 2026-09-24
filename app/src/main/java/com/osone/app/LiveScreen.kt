@@ -28,10 +28,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
+/** Estado das permissões que ampliam o agente, mostrado no painel do Live. */
+class PhoneAccess(val notifications: Boolean, val contacts: Boolean, val memoryFolder: Boolean,
+    val onNotifications: () -> Unit, val onContacts: () -> Unit, val onMemory: () -> Unit)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: AppDiagnostics, bubblePermission: Boolean,
-    accessibilityEnabled: Boolean, onAccessibility: () -> Unit,
+    accessibilityEnabled: Boolean, phone: PhoneAccess, onAccessibility: () -> Unit,
     onWriting: () -> Unit,
     onOverlay: () -> Unit, onShareScreen: () -> Unit, onStopScreen: () -> Unit,
     onCameraToggle: () -> Unit, onCameraSwitch: () -> Unit,
@@ -112,7 +116,7 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
         ModalBottomSheet(onDismissRequest = { showPanel = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = colors.surfaceContainerLow) {
-            LivePanel(live, codeAuthor, session, bubblePermission, accessibilityEnabled,
+            LivePanel(live, codeAuthor, phone, session, bubblePermission, accessibilityEnabled,
                 onWriting = { showPanel = false; onWriting() },
                 onOverlay = { showPanel = false; onOverlay() },
                 onAccessibility = { showPanel = false; onAccessibility() })
@@ -205,7 +209,7 @@ private fun CameraPip(live: LiveVoiceViewModel, onSwitch: () -> Unit, modifier: 
 }
 
 @Composable
-private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, session: Boolean, bubblePermission: Boolean,
+private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, phone: PhoneAccess, session: Boolean, bubblePermission: Boolean,
     accessibilityEnabled: Boolean, onWriting: () -> Unit, onOverlay: () -> Unit, onAccessibility: () -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
         .padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -228,6 +232,15 @@ private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, session:
         PanelRow(OstieIcons.Accessibility, "Controle do celular",
             if (accessibilityEnabled) "Acessibilidade ativada · gerenciar" else "Ativar em Acessibilidade", onAccessibility,
             trailing = if (accessibilityEnabled) OstieColors.Success else null)
+        PanelRow(OstieIcons.Chat, "Notificações",
+            if (phone.notifications) "Ler e responder ativado · gerenciar" else "Permitir ler e responder notificações",
+            phone.onNotifications, trailing = if (phone.notifications) OstieColors.Success else null)
+        PanelRow(OstieIcons.Call, "Contatos",
+            if (phone.contacts) "Ligar e mandar mensagem pelo nome" else "Permitir encontrar contatos pelo nome",
+            phone.onContacts, enabled = !phone.contacts, trailing = if (phone.contacts) OstieColors.Success else null)
+        PanelRow(OstieIcons.Document, "Memória",
+            if (phone.memoryFolder) "Salva em Documentos/OSTIE · sobrevive a reinstalação" else "Permitir pasta de memória no celular",
+            phone.onMemory, enabled = !phone.memoryFolder, trailing = if (phone.memoryFolder) OstieColors.Success else null)
         Hint("A conversa continua fora do app até você encerrar aqui, na bolha ou na notificação. Tela e câmera enviam até 1 imagem por segundo e nada é gravado.")
     }
 }

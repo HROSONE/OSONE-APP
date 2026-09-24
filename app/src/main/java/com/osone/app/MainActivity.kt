@@ -20,8 +20,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +43,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val live by lazy { LiveSession.get(application) }
     private val writing by lazy { WritingWorkspace.get(application) }
     private val codeAuthor by lazy { CodeAuthor.get(application) }
+    private val memory by lazy { MemoryStore.get(application) }
+    private var notificationsAccess by mutableStateOf(false)
+    private var contactsGranted by mutableStateOf(false)
+    private val contactsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        contactsGranted = granted
+    }
+    private val legacyStoragePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        memory.refresh()
+    }
     private val updater by lazy { AppUpdater(this) }
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
@@ -73,6 +86,36 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (uri != null) lifecycleScope.launch { updater.chooseApk(uri) }
     }
 
+    private fun requestLive() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            openLive()
+        else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    /** Pasta de memória: "Acesso a todos os arquivos" no Android 11+, permissão comum antes disso. */
+    private fun requestMemoryFolder() {
+        val intent = memory.accessIntent()
+        if (intent != null) try { startActivity(intent) }
+            catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+        else legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    }
+
+    /** Atalhos, bloco dos Ajustes rápidos, assistente e "Compartilhar com OSTIE". */
+    private fun handleIntent(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_LIVE, Intent.ACTION_ASSIST -> { showWriting = false; requestLive() }
+            ACTION_WRITING -> { showLive = false; showWriting = true }
+            Intent.ACTION_SEND -> {
+                showLive = false; showWriting = false
+                intent.getStringExtra(Intent.EXTRA_TEXT)?.let(viewModel::receiveShared)
+                @Suppress("DEPRECATION")
+                val stream = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    else intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                stream?.let(viewModel::attach)
+            }
+        }
+    }
+
     private fun openLive() {
         permissionError = false
         showLive = true
@@ -100,6 +143,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (!installRequested) lifecycleScope.launch { updater.checkOnLaunch() }
+        if (savedInstanceState == null) handleIntent(intent)
         setContent {
             var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
@@ -118,6 +162,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             OstieTheme(darkMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (showLive) LiveScreen(live, codeAuthor, diagnostics, bubblePermission, accessibilityEnabled,
+                        phone = PhoneAccess(notificationsAccess, contactsGranted, memory.persistent,
+                            onNotifications = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                            onContacts = { contactsPermission.launch(Manifest.permission.READ_CONTACTS) },
+                            onMemory = ::requestMemoryFolder),
                         onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         onWriting = { showWriting = true; showLive = false },
                         onOverlay = {
@@ -144,7 +192,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             volumeControlStream = AudioManager.STREAM_MUSIC },
                         onDiagnostics = { showDiagnostics = true }, onBack = { showLive = false;
                             volumeControlStream = AudioManager.STREAM_MUSIC })
-                    else if (showSettings) SettingsScreen(viewModel, live, codeAuthor, updater, darkMode,
+                    else if (showSettings) SettingsScreen(viewModel, live, codeAuthor, updater, memory, darkMode,
+                        onMemoryFolder = ::requestMemoryFolder,
                         onDarkMode = { enabled ->
                             darkMode = enabled
                             applySystemBars()
@@ -182,6 +231,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             lifecycleScope.launch { updater.checkAndInstall() }
                         }, onLater = updater::dismissPrompt)
                     }
+                    ConfirmGate.pending?.let { item ->
+                        AlertDialog(onDismissRequest = ConfirmGate::cancel,
+                            title = { Text(item.title) }, text = { Text(item.detail) },
+                            confirmButton = { Button(onClick = ConfirmGate::confirm) { Text(item.confirmLabel) } },
+                            dismissButton = { TextButton(onClick = ConfirmGate::cancel) { Text("Cancelar") } })
+                    }
                     codeAuthor.pending?.let { request ->
                         CodeAuthorDialog(request, voiceLabel = if (live.connected) live.active?.label else null,
                             textLabel = codeAuthor.textModelLabel(),
@@ -208,16 +263,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(UpdateCheckWorker.EXTRA_INSTALL, false)) installRequested = true
+        handleIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         bubblePermission = Settings.canDrawOverlays(this)
         accessibilityEnabled = OsoneAccessibilityService.active != null
+        notificationsAccess = OstieNotificationListener.enabled(this)
+        contactsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
         updater.resumeAfterPermission()
         if (overlayRequested && bubblePermission && live.active != null)
             LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
         overlayRequested = false
     }
+    companion object {
+        const val ACTION_LIVE = "com.osone.app.action.LIVE"
+        const val ACTION_WRITING = "com.osone.app.action.WRITING"
+    }
+
     override fun onDestroy() { speech?.stop(); speech?.shutdown(); super.onDestroy() }
 }

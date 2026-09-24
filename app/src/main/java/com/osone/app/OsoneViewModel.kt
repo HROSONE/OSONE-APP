@@ -20,6 +20,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     private val groqSecrets = SecureKeyStore(application, "key_groq")
     private val history = ConversationStore(application)
     private val diagnostics = AppDiagnostics.get(application)
+    private val memory = MemoryStore.get(application)
     private val settings = application.getSharedPreferences("osone_config", 0)
     private val main = Handler(Looper.getMainLooper())
     var messages by androidx.compose.runtime.mutableStateOf(history.read())
@@ -188,6 +189,12 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeAttachment() { attachment = null }
 
+    /** Texto recebido pelo "Compartilhar" do Android, colocado no campo de mensagem. */
+    var incomingText by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+    fun receiveShared(text: String) { incomingText = text.take(20_000) }
+    fun consumeIncoming() { incomingText = null }
+
     fun send(input: String, onAnswer: (String) -> Unit): Boolean {
         val text = input.trim()
         val selectedFile = attachment
@@ -229,13 +236,15 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 try {
                                     GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
+                                        systemPrompt = GeminiClient.DEFAULT_SYSTEM + memory.promptBlock(),
                                         googleSearch = search, onPartial = stream)
                                 } catch (failure: GeminiHttpException) {
                                     // Alguns modelos ou anexos recusam a ferramenta de pesquisa: responde sem ela.
                                     if (!search || failure.status != 400) throw failure
                                     search = false
                                     diagnostics.record("Pesquisa Google", "${choice.label} recusou a pesquisa (HTTP 400); respondendo sem ela.")
-                                    GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part, onPartial = stream)
+                                    GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
+                                        systemPrompt = GeminiClient.DEFAULT_SYSTEM + memory.promptBlock(), onPartial = stream)
                                 }
                             }
                             lastAnswerModel = choice
@@ -254,7 +263,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                         activeTextModel = currentLabel
                         try {
                             response = withContext(Dispatchers.IO) {
-                                ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot) { partial ->
+                                ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot,
+                                    ChatCompletionClient.DEFAULT_SYSTEM + memory.promptBlock()) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
                                 }
                             }
