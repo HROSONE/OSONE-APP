@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
     private val updater by lazy { AppUpdater(this) }
     private var speech: TextToSpeech? = null
+    private val chatVoice by lazy { ChatVoice.get(application) }
     private var showLive by mutableStateOf(false)
     private var showWriting by mutableStateOf(false)
     private var showRoutines by mutableStateOf(false)
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun openLive() {
         permissionError = false
+        chatVoice.stop(); speech?.stop() // O Live fala por conta própria.
         showLive = true
         volumeControlStream = AudioManager.STREAM_MUSIC
         if (live.active == null) LiveSessionService.command(this, LiveSessionService.START)
@@ -258,8 +260,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             showWriting = true
                         },
                         onDiagnostics = { showDiagnostics = true }, readAloud = readAloud,
-                        onReadAloud = { readAloud = !readAloud }, onAnswer = { answer ->
-                            if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
+                        onReadAloud = {
+                            readAloud = !readAloud
+                            if (!readAloud) { chatVoice.stop(); speech?.stop() }
+                        }, onAnswer = { answer ->
+                            // Voz do Gemini TTS; a do Android lê quando ela está escolhida ou quando o Gemini falha.
+                            if (readAloud) chatVoice.speak(answer) { text ->
+                                speech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
+                            }
                         })
                     if (showDiagnostics) DiagnosticsDialog(diagnostics, onClose = { showDiagnostics = false })
                     updater.prompt?.let { release ->
@@ -325,5 +333,5 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         const val ACTION_WRITING = "com.osone.app.action.WRITING"
     }
 
-    override fun onDestroy() { speech?.stop(); speech?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { chatVoice.stop(); speech?.stop(); speech?.shutdown(); super.onDestroy() }
 }

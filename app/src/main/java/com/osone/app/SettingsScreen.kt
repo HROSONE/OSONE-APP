@@ -73,6 +73,14 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
             }
             SectionCard("Chat escrito", OstieIcons.Chat) {
                 OptionPicker("Provedor", viewModel.provider.label, ChatProvider.entries, { it.label }, viewModel::selectProvider)
+                val appContext = LocalContext.current
+                val chatVoice = remember { ChatVoice.get(appContext) }
+                OptionPicker("Voz das respostas", chatVoice.engine.label, ChatVoiceEngine.entries, { it.label },
+                    chatVoice::selectEngine)
+                if (chatVoice.engine != ChatVoiceEngine.ANDROID) {
+                    OptionPicker("Voz", chatVoice.voice, LiveVoices.names, { it }, chatVoice::selectVoice)
+                    Hint("Ligue o alto-falante no topo do chat para ouvir as respostas. Usa a chave Gemini; se ela falhar, a voz do Android lê no lugar.")
+                }
                 SettingSwitch("Ações no chat escrito", viewModel.chatTools, viewModel::updateChatTools,
                     "Com Gemini, o chat cria alarmes, rotinas e anotações, lê a agenda e as notificações e prepara mensagens, como no Live.")
                 when (viewModel.provider) {
