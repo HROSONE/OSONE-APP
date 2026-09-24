@@ -94,9 +94,25 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     /** Descrição do modo reduzido quando o modelo recusou parte da configuração; nulo = completo. */
     var reducedMode by mutableStateOf<String?>(null)
         private set
-    /** 0 completo · 1 sem pesquisa · 2 só ferramentas básicas · 3 só voz. Lembrado por modelo por 24 h. */
+    /** 0 completo · 1 sem pesquisa · 2 sem legendas/retomada · 3 só ferramentas básicas · 4 só voz (24 h por modelo). */
     private var setupLevel = 0
     private var extendedTools = true
+    private var extrasAvailable = true
+    /** Retomada de sessão: o servidor manda um identificador e a reconexão continua a mesma conversa. */
+    @Volatile private var resumeHandle: String? = null
+    private var resumeModel: String? = null
+    private var sentHandle = false
+    /** Legendas do turno atual (transcrição da API Live). */
+    var captionUser by mutableStateOf("")
+        private set
+    var captionModel by mutableStateOf("")
+        private set
+    var captions by mutableStateOf(preferences.getBoolean("live_captions", true))
+        private set
+    var saveTranscript by mutableStateOf(preferences.getBoolean("live_save_transcript", true))
+        private set
+    private val turnUser = StringBuilder()
+    private val turnModel = StringBuilder()
     private var readyAt = 0L
     @Volatile private var heardFromModel = false
 
@@ -117,6 +133,16 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     fun select(model: LiveModel) {
         selected = model
         preferences.edit().putString("live_model", model.id).apply()
+    }
+
+    fun updateCaptions(enabled: Boolean) {
+        captions = enabled
+        preferences.edit().putBoolean("live_captions", enabled).apply()
+    }
+
+    fun updateSaveTranscript(enabled: Boolean) {
+        saveTranscript = enabled
+        preferences.edit().putBoolean("live_save_transcript", enabled).apply()
     }
 
     /** Consulta v1beta/models com a chave Gemini e guarda só os modelos da API Live. */
@@ -179,6 +205,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         key = saved
         running = true
         candidates = LiveModel.candidates(selected, fallback, models)
+        resumeHandle = null; resumeModel = null // Nova chamada = nova conversa.
+        captionUser = ""; captionModel = ""; turnUser.setLength(0); turnModel.setLength(0)
         // Atualiza a lista de modelos da chave em segundo plano (no máximo 1x por dia).
         if (System.currentTimeMillis() - preferences.getLong("live_models_at", 0L) > 24 * 3600_000L) refreshModels()
         candidateIndex = 0
@@ -282,8 +310,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         active = model
         setupLevel = savedLevel(model)
         searchAvailable = preferences.getBoolean("google_search", true) && setupLevel < 1
-        extendedTools = setupLevel < 2
-        localToolsAvailable = setupLevel < 3
+        extrasAvailable = setupLevel < 2
+        extendedTools = setupLevel < 3
+        localToolsAvailable = setupLevel < 4
         reducedMode = LEVEL_NAMES.getOrNull(setupLevel)?.takeIf { setupLevel > 0 }
         heardFromModel = false
         status = if (reconnectOnce) "Reconectando ${model.label}…" else "Conectando ${model.label}…"
@@ -301,13 +330,22 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             .put("prebuiltVoiceConfig", JSONObject().put("voiceName", voice))))
                     // Variantes "extended thinking" exigem o nível de raciocínio (senão fecham com 1007).
                     if (model.id.contains("thinking")) generation.put("thinkingConfig", JSONObject().put("thinkingLevel", "medium"))
-                    val setup = JSONObject().put("setup", JSONObject()
+                    val generationSetup = JSONObject()
+                    val setup = JSONObject().put("setup", generationSetup
                         .put("model", "models/${model.id}")
                         .put("generationConfig", generation)
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
-                            .put("text", "Você é OSTIE, assistente pessoal no Android. Converse naturalmente em português brasileiro. Quando o usuário pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando o usuário pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando o usuário liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou. Quando a pergunta depender de informação atual ou que você não sabe com certeza (notícias, preços, placares, clima, horários, lançamentos), use a Pesquisa Google e diga de onde veio a informação." + AGENT_GUIDE + UserProfile.get(getApplication()).identity(canSave = localToolsAvailable) +
+                            .put("text", "Você é OSTIE, assistente pessoal no Android. Converse naturalmente em português brasileiro. Quando o usuário pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando o usuário pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando o usuário liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou. Quando a pergunta depender de informação atual ou que você não sabe com certeza (notícias, preços, placares, clima, horários, lançamentos), use a Pesquisa Google (ou a ferramenta web_search, quando for ela a disponível) e diga de onde veio a informação." + AGENT_GUIDE + UserProfile.get(getApplication()).identity(canSave = localToolsAvailable) +
                                 memory.promptBlock())))))
+                    sentHandle = false
+                    if (extrasAvailable) {
+                        val resume = JSONObject()
+                        if (resumeHandle != null && resumeModel == model.id) { resume.put("handle", resumeHandle); sentHandle = true }
+                        generationSetup.put("sessionResumption", resume)
+                            .put("inputAudioTranscription", JSONObject())
+                            .put("outputAudioTranscription", JSONObject())
+                    }
                     val tools = JSONArray()
                     if (localToolsAvailable) tools.put(JSONObject().put("functionDeclarations", localTools.declarations()
                         .put(writeDocumentDeclaration()).put(requestCodeDeclaration()).also { list ->
@@ -315,6 +353,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                                 val direct = phoneActions.declarations()
                                 for (i in 0 until direct.length()) list.put(direct.get(i))
                             }
+                            // Sem a pesquisa embutida (ex.: cota do Live 3.x), pesquisa pelo modelo de texto.
+                            if (!searchAvailable && preferences.getBoolean("google_search", true)) list.put(WebSearch.declaration())
                         }))
                     if (searchAvailable) tools.put(JSONObject().put("googleSearch", JSONObject()))
                     if (tools.length() > 0) setup.getJSONObject("setup").put("tools", tools)
@@ -378,6 +418,14 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         }
         val content = message.optJSONObject("serverContent")
         if (content != null || message.has("toolCall")) heardFromModel = true
+        message.optJSONObject("sessionResumptionUpdate")?.let { update ->
+            val handle = update.optString("newHandle")
+            if (update.optBoolean("resumable") && handle.isNotBlank()) { resumeHandle = handle; resumeModel = active?.id }
+        }
+        val heardUser = content?.optJSONObject("inputTranscription")?.optString("text").orEmpty()
+        val heardModel = content?.optJSONObject("outputTranscription")?.optString("text").orEmpty()
+        val turnDone = content?.optBoolean("turnComplete") == true || content?.optBoolean("interrupted") == true
+        if (heardUser.isNotEmpty() || heardModel.isNotEmpty() || turnDone) main.post { onTranscript(heardUser, heardModel, turnDone) }
         if (content?.optBoolean("interrupted") == true) {
             audio?.interrupt()
             main.post {
@@ -411,6 +459,17 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Legendas ao vivo; no fim do turno, a troca vai para o histórico do chat (se ativado). */
+    private fun onTranscript(user: String, model: String, turnDone: Boolean) {
+        if (!running) return
+        if (user.isNotEmpty()) { turnUser.append(user); captionUser = turnUser.toString().takeLast(240).trim() }
+        if (model.isNotEmpty()) { turnModel.append(model); captionModel = turnModel.toString().takeLast(240).trim() }
+        if (turnDone && (turnUser.isNotBlank() || turnModel.isNotBlank())) {
+            if (saveTranscript) LiveTranscriptInbox.push(getApplication(), turnUser.toString(), turnModel.toString())
+            turnUser.setLength(0); turnModel.setLength(0)
+        }
+    }
+
     private fun handleToolCall(ws: WebSocket, call: JSONObject) {
         val calls = call.optJSONArray("functionCalls") ?: return
         val responses = JSONArray()
@@ -422,6 +481,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             if (phoneActions.handles(name)) {
                 // Ações diretas; as sensíveis só respondem depois da confirmação na tela.
                 phoneActions.execute(name, args) { answer -> sendToolResponse(ws, name, id, answer) }
+                continue
+            }
+            if (name == WebSearch.NAME) {
+                WebSearch.run(getApplication(), args) { answer -> sendToolResponse(ws, name, id, answer) }
                 continue
             }
             if (name == "request_code") {
@@ -534,6 +597,15 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         // Fechamento antes de o modelo responder qualquer coisa costuma ser a configuração recusada
         // (ferramentas, pesquisa). Reduz um degrau e tenta o mesmo modelo de novo; cota não conta.
         val model = active
+        val early = !wasReady || (!heardFromModel && System.currentTimeMillis() - readyAt < 20_000)
+        if (sentHandle && early) {
+            // A retomada foi recusada (identificador expirado): começa a conversa de novo, sem rebaixar nada.
+            resumeHandle = null; resumeModel = null
+            connect()
+            return
+        }
+        // Sessão que ficou de pé por um tempo volta a ter direito a reconectar (quedas e goAway periódicos).
+        if (wasReady && System.currentTimeMillis() - readyAt > 30_000) reconnectOnce = false
         if (model != null && setupLevel < 1 && LiveCloseReason.isSearchQuota(cause, wasReady, heardFromModel,
                 System.currentTimeMillis() - readyAt, searchAvailable)) {
             preferences.edit().putInt("live_level_${model.id}", 1)
@@ -542,7 +614,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             connect()
             return
         }
-        if (model != null && setupLevel < 3 && LiveCloseReason.isSetupRejection(cause, wasReady,
+        if (model != null && setupLevel < 4 && LiveCloseReason.isSetupRejection(cause, wasReady,
                 heardFromModel, System.currentTimeMillis() - readyAt)) {
             val next = setupLevel + 1
             preferences.edit().putInt("live_level_${model.id}", next)
@@ -569,7 +641,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private fun savedLevel(model: LiveModel): Int {
         val at = preferences.getLong("live_level_at_${model.id}", 0L)
         if (System.currentTimeMillis() - at > 24 * 3600_000L) return 0
-        return preferences.getInt("live_level_${model.id}", 0).coerceIn(0, 3)
+        return preferences.getInt("live_level_${model.id}", 0).coerceIn(0, 4)
     }
 
     /** Volta a tentar a configuração completa em todos os modelos (pesquisa e todas as ações). */
@@ -582,8 +654,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private companion object {
-        val LEVEL_NAMES = listOf("com configuração completa", "sem Pesquisa Google",
-            "só com as ferramentas básicas", "somente voz")
+        val LEVEL_NAMES = listOf("com configuração completa", "sem Pesquisa Google embutida",
+            "sem legendas e retomada de conversa", "só com as ferramentas básicas", "somente voz")
         const val AGENT_GUIDE = " Para alarmes, timers, agenda, contatos, ligações, mensagens, rotas, mídia, lanterna, links e compartilhar, prefira as ferramentas diretas (set_alarm, set_timer, create_event, find_contact, dial, compose_message, navigate, media_control, flashlight, open_url, share_text) em vez de tocar na tela; use a acessibilidade só quando não houver ferramenta direta. Para ligar ou mandar mensagem a alguém pelo nome, use find_contact antes. Mensagens e ligações abrem prontas e o usuário confirma o envio; reply_notification pede confirmação na tela, então avise que ele precisa confirmar. Use read_notifications quando ele perguntar o que chegou. Você tem uma memória própria em Documentos/OSTIE/memoria.md, organizada em seções: sempre que aprender algo duradouro e útil sobre o usuário (preferências, pessoas, rotina, projetos, combinados), anote por conta própria com memory_note, sem pedir permissão e sem anunciar cada anotação; quando uma seção ficar repetida ou desatualizada, reorganize com memory_rewrite; se ele pedir para esquecer, use memory_forget. Nunca anote senhas, códigos, dados bancários ou documentos. Para coisas repetidas ou em horário marcado (\"todo dia às 8h me dá as notícias\", \"me lembra às 18h de tomar remédio\"), crie uma rotina com create_routine: tipo lembrete para avisos fixos, tipo tarefa quando precisar pesquisar ou escrever algo na hora; confirme horário e dias ao usuário."
     }
 

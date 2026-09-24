@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -105,6 +106,7 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
                 Spacer(Modifier.height(4.dp))
                 Hint(it, if (!live.connected && live.attempts.isNotEmpty()) colors.error else colors.onSurfaceVariant)
             }
+            if (live.captions && (live.captionUser.isNotBlank() || live.captionModel.isNotBlank())) Captions(live)
             ShareStatus(live, clock)
             Spacer(Modifier.height(20.dp))
             ControlDock(live, session,
@@ -151,6 +153,20 @@ private fun ControlDock(live: LiveVoiceViewModel, session: Boolean, onMute: () -
             RoundAction(if (session) OstieIcons.CallEnd else OstieIcons.Call,
                 if (session) "Encerrar conversa" else "Iniciar conversa", onEnd,
                 container = if (session) OstieColors.Danger else OstieColors.Success, size = 60.dp)
+        }
+    }
+}
+
+/** Últimas falas transcritas pela API Live (limpas a cada nova chamada). */
+@Composable
+private fun Captions(live: LiveVoiceViewModel) {
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (live.captionUser.isNotBlank()) Text("Você: ${live.captionUser}", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (live.captionModel.isNotBlank()) Text("OSTIE: ${live.captionModel}", style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -268,6 +284,9 @@ private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, phone: P
         })
         SettingSwitch("Proteção de eco", live.echoGuard, live::updateEchoGuard,
             "No alto-falante, impede que a voz do OSTIE interrompa a si mesma. Fale mais alto para interromper. Com fones, fica desligada sozinha.")
+        SettingSwitch("Legendas", live.captions, live::updateCaptions, "Mostra o que você e o OSTIE falam.")
+        SettingSwitch("Salvar conversa de voz no chat", live.saveTranscript, live::updateSaveTranscript,
+            "Cada troca falada vira mensagem no chat escrito, que passa a lembrar do que foi dito.")
         CodeAuthorPicker(codeAuthor)
         live.reducedMode?.let { mode ->
             Hint("Este modelo está conectando $mode porque recusou a configuração completa.")
