@@ -13,6 +13,7 @@ class GeminiHttpException(val status: Int) : Exception("O serviço respondeu HTT
 class GeminiClient {
     fun streamAnswer(key: String, model: ChatModel, history: List<ChatMessage>, mode: ThinkingMode,
         attachment: JSONObject? = null, systemPrompt: String = DEFAULT_SYSTEM, readTimeoutMs: Int = 45_000,
+        googleSearch: Boolean = false,
         onPartial: (String) -> Unit): String {
         val contents = JSONArray()
         history.takeLast(12).forEachIndexed { index, message ->
@@ -30,6 +31,8 @@ class GeminiClient {
             ThinkingMode.DEEP -> 4096
         }) else JSONObject().put("thinkingLevel", mode.value)
         request.put("generationConfig", JSONObject().put("thinkingConfig", thinking))
+        // Grounding com a Pesquisa Google: o modelo decide quando buscar; usa a mesma chave Gemini.
+        if (googleSearch) request.put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
         val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/${model.id}:streamGenerateContent?alt=sse")
             .openConnection() as HttpURLConnection)
         return try {
@@ -45,9 +48,17 @@ class GeminiClient {
             if (status !in 200..299) throw GeminiHttpException(status)
 
             val answer = StringBuilder()
+            val sources = LinkedHashMap<String, String>()
             fun processEvent(data: String) {
                 if (data.isBlank()) return
                 val candidate = JSONObject(data).optJSONArray("candidates")?.optJSONObject(0)
+                candidate?.optJSONObject("groundingMetadata")?.optJSONArray("groundingChunks")?.let { chunks ->
+                    for (i in 0 until chunks.length()) {
+                        val web = chunks.optJSONObject(i)?.optJSONObject("web") ?: continue
+                        val uri = web.optString("uri")
+                        if (uri.isNotBlank()) sources.putIfAbsent(uri, web.optString("title").ifBlank { uri })
+                    }
+                }
                 val parts = candidate?.optJSONObject("content")?.optJSONArray("parts") ?: return
                 for (i in 0 until parts.length()) {
                     val part = parts.optJSONObject(i) ?: continue
@@ -67,7 +78,10 @@ class GeminiClient {
                 }
                 processEvent(event.toString())
             }
-            answer.toString().trim().ifEmpty { throw IllegalStateException("O modelo não enviou resposta em texto.") }
+            val text = answer.toString().trim().ifEmpty { throw IllegalStateException("O modelo não enviou resposta em texto.") }
+            if (sources.isEmpty()) text else (text + "\n\nFontes:\n" + sources.entries.take(5)
+                .joinToString("\n") { (uri, title) -> "• $title — $uri" })
+                .also(onPartial)
         } finally { connection.disconnect() }
     }
 

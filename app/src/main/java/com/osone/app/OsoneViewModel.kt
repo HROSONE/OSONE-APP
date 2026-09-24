@@ -44,6 +44,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var fallback by androidx.compose.runtime.mutableStateOf(settings.getBoolean("chat_fallback", true))
         private set
+    /** Pesquisa Google (grounding) nas respostas Gemini do chat escrito. */
+    var googleSearch by androidx.compose.runtime.mutableStateOf(settings.getBoolean("google_search", true))
+        private set
     var thinkingMode by androidx.compose.runtime.mutableStateOf(ThinkingMode.fromValue(settings.getString("thinking_mode", null)))
         private set
     var streamingText by androidx.compose.runtime.mutableStateOf("")
@@ -108,6 +111,11 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     fun selectModel(value: ChatModel) {
         selectedModel = value
         settings.edit().putString("model", value.id).apply()
+    }
+
+    fun updateGoogleSearch(value: Boolean) {
+        googleSearch = value
+        settings.edit().putBoolean("google_search", value).apply()
     }
 
     fun updateFallback(value: Boolean) {
@@ -210,13 +218,24 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     val choices = if (selectedFile != null) listOf(ChatModel.GEMINI_25)
                         else ChatModel.candidates(selectedModel, fallback)
                     var answer: String? = null
+                    var search = googleSearch
                     for ((index, choice) in choices.withIndex()) {
                         activeModel = choice
                         activeTextModel = "Gemini · ${choice.label}"
                         try {
                             answer = withContext(Dispatchers.IO) {
-                                GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part) { partial ->
+                                val stream: (String) -> Unit = { partial ->
                                     main.post { if (busy && activeModel == choice) streamingText = partial }
+                                }
+                                try {
+                                    GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
+                                        googleSearch = search, onPartial = stream)
+                                } catch (failure: GeminiHttpException) {
+                                    // Alguns modelos ou anexos recusam a ferramenta de pesquisa: responde sem ela.
+                                    if (!search || failure.status != 400) throw failure
+                                    search = false
+                                    diagnostics.record("Pesquisa Google", "${choice.label} recusou a pesquisa (HTTP 400); respondendo sem ela.")
+                                    GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part, onPartial = stream)
                                 }
                             }
                             lastAnswerModel = choice

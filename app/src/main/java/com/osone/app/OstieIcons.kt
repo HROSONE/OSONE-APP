@@ -43,5 +43,6 @@ object OstieIcons {
     val ArrowDown by lazy { icon("arrow_down", "M7.41,8.59L12,13.17l4.59,-4.58L18,10l-6,6l-6,-6l1.41,-1.41z") }
     val Check by lazy { icon("check", "M9,16.17L4.83,12l-1.42,1.41L9,19L21,7l-1.41,-1.41z") }
     val Shield by lazy { icon("shield", "M12,1L3,5v6c0,5.55 3.84,10.74 9,12c5.16,-1.26 9,-6.45 9,-12V5l-9,-4z") }
+    val Search by lazy { icon("search", "M15.5,14h-0.79l-0.28,-0.27C15.41,12.59 16,11.11 16,9.5C16,5.91 13.09,3 9.5,3S3,5.91 3,9.5S5.91,16 9.5,16c1.61,0 3.09,-0.59 4.23,-1.57l0.27,0.28v0.79l5,4.99L20.49,19l-4.99,-5zM9.5,14C7.01,14 5,11.99 5,9.5S7.01,5 9.5,5S14,7.01 14,9.5S11.99,14 9.5,14z") }
     val ChevronRight by lazy { icon("chevron_right", "M10,6L8.59,7.41L13.17,12l-4.58,4.59L10,18l6,-6z") }
 }

@@ -13,7 +13,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -128,7 +135,9 @@ private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, Str
             shape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp),
             modifier = Modifier.widthIn(max = 320.dp)) {
             Column {
-                Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                val linkColor = if (user) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+                val content = remember(text, linkColor) { linkify(text, linkColor) }
+                Text(content, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.bodyLarge)
                 val code = if (user || onOpenCode == null) null else remember(text) { DocumentPreview.codeBlock(text) }
                 if (code != null && onOpenCode != null) {
@@ -144,6 +153,20 @@ private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, Str
             }
         }
     }
+}
+
+private val urlPattern = Regex("https?://[^\\s)\\]]+")
+
+/** Links (como as fontes da Pesquisa Google) ficam tocáveis e abrem no navegador. */
+private fun linkify(text: String, color: Color): AnnotatedString = buildAnnotatedString {
+    var last = 0
+    urlPattern.findAll(text).forEach { match ->
+        append(text.substring(last, match.range.first))
+        withLink(LinkAnnotation.Url(match.value, TextLinkStyles(SpanStyle(color = color,
+            textDecoration = TextDecoration.Underline)))) { append(match.value) }
+        last = match.range.last + 1
+    }
+    append(text.substring(last))
 }
 
 @Composable

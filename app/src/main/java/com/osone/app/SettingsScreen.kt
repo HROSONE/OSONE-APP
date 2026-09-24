@@ -38,6 +38,14 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                         color = if (viewModel.keySaveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 }
             }
+            SectionCard("Pesquisa Google", OstieIcons.Search) {
+                SettingSwitch("Pesquisar na web quando precisar", viewModel.googleSearch, {
+                    viewModel.updateGoogleSearch(it)
+                    if (live.active != null) live.start() // O Live só recebe ferramentas ao conectar.
+                }, "Notícias, preços, clima e fatos recentes. Usa a mesma chave Gemini, no chat escrito (Gemini) e no Live. Respostas do chat mostram as fontes.")
+                if (viewModel.provider != ChatProvider.GEMINI)
+                    Hint("Groq e OpenRouter não têm Pesquisa Google; no chat escrito ela só funciona com Gemini.")
+            }
             SectionCard("Chat escrito", OstieIcons.Chat) {
                 OptionPicker("Provedor", viewModel.provider.label, ChatProvider.entries, { it.label }, viewModel::selectProvider)
                 when (viewModel.provider) {
