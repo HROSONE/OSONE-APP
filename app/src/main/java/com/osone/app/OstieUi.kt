@@ -188,10 +188,19 @@ fun <T> OptionPicker(label: String, value: String, options: List<T>, optionLabel
 
 @Composable
 fun LiveModelPicker(live: LiveVoiceViewModel) {
-    OptionPicker("Modelo de voz", live.selected.label, LiveModel.entries, { it.label }) { model ->
+    OptionPicker("Modelo de voz", live.selected.label, live.models, { it.label }) { model ->
         live.select(model)
         if (live.connected || live.active != null) live.start()
     }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("ID: ${live.selected.id}", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        TextButton(onClick = live::refreshModels, enabled = !live.modelsLoading) {
+            Text(if (live.modelsLoading) "Consultando…" else "Atualizar lista")
+        }
+    }
+    live.modelsStatus?.let { Hint(it) }
 }
 
 @Composable
