@@ -12,12 +12,13 @@ O Android instala uma versão por cima da anterior somente quando o `application
 
 ## Atualização automática (canal oficial)
 
-O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada no repositório público **`zerobob623-bit/OSONE-AI-releases`**, o mesmo dos instaladores do OSONE desktop, sem código nem segredos.
+O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada no repositório público **`HROSONE/OSONE-AI-releases`**, o mesmo dos instaladores do OSONE desktop, sem código nem segredos.
 
 Para não misturar os dois apps:
 
 - cada versão do OSTIE vira um Release `ostie-v<versão>` marcado como **pré-lançamento** e nunca como *latest*, então o atualizador do OSONE desktop não o enxerga;
-- o app lê um Release fixo, `ostie-latest`, cujo `latest.json` é substituído a cada versão: `https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json`.
+- o nome de usuário no GitHub mudou de `zerobob623-bit` para `HROSONE`: a CI publica no dono atual do repositório, e o app tenta o endereço novo e, se falhar, o antigo (desde a versão que trouxe essa mudança);
+- o app lê um Release fixo, `ostie-latest`, cujo `latest.json` é substituído a cada versão: `https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-latest/latest.json`.
 
 Configuração, feita uma única vez:
 
@@ -37,7 +38,7 @@ Formato do `latest.json` (gerado pela CI; útil para canais próprios):
 {
   "versionCode": 140,
   "versionName": "0.15.40",
-  "apkUrl": "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-v0.15.40/ostie-140.apk",
+  "apkUrl": "https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-v0.15.40/ostie-140.apk",
   "sha256": "64 dígitos hexadecimais do SHA-256 do APK",
   "notes": "Novidades desta versão"
 }

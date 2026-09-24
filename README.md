@@ -1,6 +1,6 @@
 # OSTIE
 
-Projeto **Android nativo** em Kotlin e Jetpack Compose, separado do [OSONE-AI-code](https://github.com/zerobob623-bit/OSONE-AI-code). OSTIE é o nome público do aplicativo. O identificador `com.osone.app` e o repositório `OSONE-APP` continuam iguais para preservar instalações e dados. Ainda não é uma cópia integral dos recursos do desktop.
+Projeto **Android nativo** em Kotlin e Jetpack Compose, separado do [OSONE-AI-code](https://github.com/HROSONE/OSONE-AI-code). OSTIE é o nome público do aplicativo. O identificador `com.osone.app` e o repositório `OSONE-APP` continuam iguais para preservar instalações e dados. Ainda não é uma cópia integral dos recursos do desktop.
 
 ## Funciona agora
 

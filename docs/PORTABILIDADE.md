@@ -1,6 +1,6 @@
 # Portabilidade do OSONE para Android
 
-Fonte consultada: `zerobob623-bit/OSONE-AI-code`, branch `main`, mapa `FEATURES.md` e instruções `AGENTS.md` em 23/09/2026.
+Fonte consultada: `HROSONE/OSONE-AI-code`, branch `main`, mapa `FEATURES.md` e instruções `AGENTS.md` em 23/09/2026.
 
 | Sistema atual | Caminho Android | Estado |
 | --- | --- | --- |

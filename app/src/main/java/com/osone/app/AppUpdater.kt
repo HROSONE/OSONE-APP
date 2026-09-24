@@ -280,12 +280,22 @@ class AppUpdater(private val activity: Activity) {
  * virar o "latest" que o atualizador do desktop lê.
  */
 object UpdateFeed {
-    const val OFFICIAL = "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json"
+    const val OFFICIAL = "https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-latest/latest.json"
+    /** Endereço antes da troca do nome de usuário no GitHub; reserva enquanto a troca não acontece. */
+    const val LEGACY = "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json"
 
     fun address(context: Context): String = context.getSharedPreferences("ostie_updates", 0)
-        .getString("feed_url", "").orEmpty().trim().ifEmpty { OFFICIAL }
+        .getString("feed_url", "").orEmpty().trim().let { if (it.isEmpty() || it == LEGACY) OFFICIAL else it }
 
+    /** O canal oficial tenta o nome novo e, se falhar, o antigo; um canal personalizado é lido direto. */
     fun fetch(address: String): OstieUpdate {
+        if (address != OFFICIAL) return read(address)
+        return try { read(OFFICIAL) } catch (failure: Exception) {
+            try { read(LEGACY) } catch (_: Exception) { throw failure }
+        }
+    }
+
+    private fun read(address: String): OstieUpdate {
         require(address.isNotBlank()) { "Informe o endereço HTTPS do canal de atualizações." }
         val connection = openHttps(address)
         val bytes = try { connection.inputStream.use { input ->
