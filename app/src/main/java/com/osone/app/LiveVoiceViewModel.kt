@@ -36,7 +36,14 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-    var selected by mutableStateOf(LiveModel.fromId(preferences.getString("live_model", null)))
+    /** Modelos Live que a chave aceita (ListModels), em cache; padrões até a primeira consulta. */
+    var models by mutableStateOf(LiveModel.fromJson(preferences.getString("live_models", null)).ifEmpty { LiveModel.DEFAULTS })
+        private set
+    var modelsStatus by mutableStateOf<String?>(null)
+        private set
+    var modelsLoading by mutableStateOf(false)
+        private set
+    var selected by mutableStateOf(LiveModel.fromId(preferences.getString("live_model", null), models))
         private set
     var voice by mutableStateOf(LiveVoices.fromName(preferences.getString("live_voice", null)))
         private set
@@ -112,6 +119,42 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         preferences.edit().putString("live_model", model.id).apply()
     }
 
+    /** Consulta v1beta/models com a chave Gemini e guarda só os modelos da API Live. */
+    fun refreshModels() {
+        val apiKey = secrets.read() ?: run { modelsStatus = "Salve a chave Gemini em Ajustes."; return }
+        if (modelsLoading) return
+        modelsLoading = true
+        modelsStatus = "Consultando modelos Live desta chave…"
+        Thread({
+            val result = try {
+                val request = Request.Builder()
+                    .url("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000")
+                    .header("x-goog-api-key", apiKey).build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("HTTP ${response.code}")
+                    LiveModel.parseCatalog(response.body.string())
+                }
+            } catch (failure: Exception) {
+                main.post {
+                    modelsLoading = false
+                    modelsStatus = "Não consegui listar os modelos (${failure.message?.take(60) ?: failure.javaClass.simpleName})."
+                }
+                return@Thread
+            }
+            main.post {
+                modelsLoading = false
+                if (result.isEmpty()) { modelsStatus = "A chave não listou nenhum modelo Live."; return@post }
+                models = result
+                preferences.edit().putString("live_models", LiveModel.toJson(result))
+                    .putLong("live_models_at", System.currentTimeMillis()).apply()
+                val known = result.firstOrNull { it.id == selected.id }
+                modelsStatus = "${result.size} modelos Live disponíveis nesta chave." +
+                    if (known == null) " O modelo escolhido (${selected.id}) não está entre eles; escolha um da lista." else ""
+                if (known != null) selected = known
+            }
+        }, "ostie-live-models").start()
+    }
+
     fun updateFallback(enabled: Boolean) {
         fallback = enabled
         preferences.edit().putBoolean("live_fallback", enabled).apply()
@@ -135,7 +178,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (saved == null) { status = "Salve sua chave Gemini em Ajustes antes de iniciar."; return }
         key = saved
         running = true
-        candidates = LiveModel.candidates(selected, fallback)
+        candidates = LiveModel.candidates(selected, fallback, models)
+        // Atualiza a lista de modelos da chave em segundo plano (no máximo 1x por dia).
+        if (System.currentTimeMillis() - preferences.getLong("live_models_at", 0L) > 24 * 3600_000L) refreshModels()
         candidateIndex = 0
         reconnectOnce = false
         memory.refresh() // Relê a pasta: pode ter sido editada fora do app ou restaurada após reinstalação.
@@ -520,7 +565,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     /** Volta a tentar a configuração completa em todos os modelos (pesquisa e todas as ações). */
     fun resetCapabilities() {
         val editor = preferences.edit()
-        LiveModel.entries.forEach { editor.remove("live_level_${it.id}").remove("live_level_at_${it.id}") }
+        (models + LiveModel.DEFAULTS).forEach { editor.remove("live_level_${it.id}").remove("live_level_at_${it.id}") }
         editor.apply()
         reducedMode = null
         if (running) start()

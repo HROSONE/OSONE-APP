@@ -56,5 +56,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     testImplementation("junit:junit:4.13.2")
+    // org.json real nos testes JVM (o android.jar só traz stubs).
+    testImplementation("org.json:json:20250517")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
