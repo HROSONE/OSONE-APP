@@ -41,6 +41,11 @@ class LiveAudioEngine(
     /** Momento até o qual o alto-falante ainda pode estar emitindo a resposta. */
     @Volatile private var speakerBusyUntil = 0L
     @Volatile private var privateOutput = false
+    /** Com legendas, a fala transcrita confirma se uma interrupção foi mesmo do usuário. */
+    @Volatile var canConfirm = false
+    private val calibration = loadCalibration(context)
+    @Volatile private var pendingBargeAt = 0L
+    @Volatile private var measuredEcho = -1f
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
     private var echoCanceler: AcousticEchoCanceler? = null
@@ -91,7 +96,7 @@ class LiveAudioEngine(
             val frame = ByteArray(FRAME_BYTES) // 40 ms at 16 kHz, 16-bit mono.
             val silence = Base64.encodeToString(ByteArray(FRAME_BYTES), Base64.NO_WRAP)
             val held = ArrayDeque<String>() // Início da fala do usuário enquanto o OSTIE fala.
-            var echoLevel = 0.02f
+            var echoLevel = calibration.echoFloor
             var loudFrames = 0
             var bargeInUntil = 0L
             var lastRouteCheck = 0L
@@ -105,9 +110,15 @@ class LiveAudioEngine(
                 inputLevel(level)
                 val encoded = Base64.encodeToString(frame, 0, count, Base64.NO_WRAP)
                 val speakerTalking = echoGuard && !privateOutput && now < speakerBusyUntil
+                // Interrupção sem fala transcrita em seguida era o próprio eco: a barreira sobe.
+                val pending = pendingBargeAt
+                if (pending > 0 && now - pending > CONFIRM_MS) {
+                    pendingBargeAt = 0
+                    synchronized(calibration) { calibration.falseBarge() }
+                }
                 if (!speakerTalking || now < bargeInUntil) {
                     // Sem eco possível (ou usuário já interrompeu): áudio real, contínuo.
-                    if (speakerTalking && level > bargeThreshold(echoLevel)) bargeInUntil = now + BARGE_HOLD_MS
+                    if (speakerTalking && level > threshold(echoLevel)) bargeInUntil = now + BARGE_HOLD_MS
                     held.clear() // Quadros retidos eram eco; não chegam ao serviço.
                     loudFrames = 0
                     if (!speakerTalking) echoLevel = maxOf(0.02f, echoLevel * 0.9f)
@@ -116,12 +127,13 @@ class LiveAudioEngine(
                 }
                 // O alto-falante está tocando: o microfone ouve a própria resposta. O Gemini
                 // recebe silêncio até a fala do usuário superar claramente o eco medido.
-                if (level > bargeThreshold(echoLevel)) loudFrames++
-                else { loudFrames = 0; echoLevel = maxOf(level, echoLevel * 0.97f).coerceAtMost(0.4f) }
+                if (level > threshold(echoLevel)) loudFrames++
+                else { loudFrames = 0; echoLevel = maxOf(level, echoLevel * 0.97f).coerceAtMost(0.4f); measuredEcho = echoLevel }
                 held.addLast(encoded)
                 if (held.size > BARGE_FRAMES) held.removeFirst()
                 if (loudFrames >= BARGE_FRAMES) {
                     bargeInUntil = now + BARGE_HOLD_MS
+                    if (canConfirm) pendingBargeAt = now
                     held.forEach(send); held.clear()
                     loudFrames = 0
                 } else send(silence)
@@ -222,6 +234,19 @@ class LiveAudioEngine(
 
     fun finishTurn() { turnEnded = true }
 
+    /** Volta ao padrão (Recalibrar, no painel do Live). */
+    fun resetCalibration() {
+        pendingBargeAt = 0; measuredEcho = -1f
+        synchronized(calibration) { calibration.reset() }
+    }
+
+    /** A transcrição trouxe fala do usuário: a última interrupção era real. */
+    fun userSpoke() {
+        if (pendingBargeAt == 0L) return
+        pendingBargeAt = 0
+        synchronized(calibration) { calibration.realBarge() }
+    }
+
     @Synchronized fun interrupt() {
         generation.incrementAndGet()
         queue.clear()
@@ -237,7 +262,9 @@ class LiveAudioEngine(
     }
 
     fun stop() {
+        val wasRunning = running
         running = false
+        if (wasRunning) saveCalibration()
         generation.incrementAndGet()
         queue.clear()
         queuedBytes.set(0)
@@ -256,7 +283,18 @@ class LiveAudioEngine(
         noiseSuppressor?.release(); noiseSuppressor = null
     }
 
-    private fun bargeThreshold(echo: Float) = maxOf(BARGE_MIN_LEVEL, echo * BARGE_RATIO).coerceAtMost(0.7f)
+    private fun threshold(echo: Float) = synchronized(calibration) { calibration.threshold(echo) }
+
+    private fun loadCalibration(context: Context) = EchoCalibration.fromJson(
+        context.getSharedPreferences(CALIBRATION_PREFS, 0).getString("calibration", null)).apply { relax() }
+
+    private fun saveCalibration() {
+        val json = synchronized(calibration) {
+            measuredEcho.takeIf { it > 0f }?.let(calibration::learnEcho)
+            calibration.toJson()
+        }
+        context.getSharedPreferences(CALIBRATION_PREFS, 0).edit().putString("calibration", json).apply()
+    }
 
     /** Fones com fio, Bluetooth, USB ou aparelhos auditivos não realimentam o microfone. */
     private fun usesPrivateOutput(): Boolean = try {
@@ -290,14 +328,14 @@ class LiveAudioEngine(
         return (sqrt(sum / samples) / 10000.0).toFloat().coerceIn(0f, 1f)
     }
 
-    private companion object {
-        const val FRAME_BYTES = 1280
-        const val ECHO_TAIL_MS = 300L
-        const val BARGE_FRAMES = 3 // 120 ms de fala acima do eco para interromper.
-        const val BARGE_HOLD_MS = 1200L
-        const val BARGE_MIN_LEVEL = 0.08f
-        const val BARGE_RATIO = 2.4f
-        val PRIVATE_OUTPUTS = setOf(
+    companion object {
+        private const val FRAME_BYTES = 1280
+        private const val ECHO_TAIL_MS = 300L
+        private const val BARGE_FRAMES = 3 // 120 ms de fala acima do eco para interromper.
+        private const val BARGE_HOLD_MS = 1200L
+        private const val CONFIRM_MS = 3500L
+        const val CALIBRATION_PREFS = "osone_echo"
+        private val PRIVATE_OUTPUTS = setOf(
             AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
             AudioDeviceInfo.TYPE_USB_HEADSET, 23 /* TYPE_HEARING_AID */,

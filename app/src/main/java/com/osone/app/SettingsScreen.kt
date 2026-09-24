@@ -72,6 +72,8 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
             }
             SectionCard("Chat escrito", OstieIcons.Chat) {
                 OptionPicker("Provedor", viewModel.provider.label, ChatProvider.entries, { it.label }, viewModel::selectProvider)
+                SettingSwitch("Ações no chat escrito", viewModel.chatTools, viewModel::updateChatTools,
+                    "Com Gemini, o chat cria alarmes, rotinas e anotações, lê a agenda e as notificações e prepara mensagens, como no Live.")
                 when (viewModel.provider) {
                     ChatProvider.GEMINI -> {
                         OptionPicker("Modelo", viewModel.selectedModel.label, ChatModel.entries, { it.label }, viewModel::selectModel)
@@ -128,11 +130,19 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     Button(onClick = onMemoryFolder) { Text("Permitir pasta de memória") }
                 }
                 Hint("O OSTIE anota por conta própria fatos, preferências, pessoas e projetos, e reorganiza as seções. Você pode ler e editar aqui ou em qualquer editor de texto.")
+                val context = LocalContext.current
+                var autoOrganize by remember { mutableStateOf(MemoryOrganizer.autoEnabled(context)) }
+                LaunchedEffect(Unit) { MemoryOrganizer.load(context) }
+                SettingSwitch("Organizar sozinha toda semana", autoOrganize, {
+                    autoOrganize = it; MemoryOrganizer.schedule(context, it)
+                }, "O modelo de texto junta repetições e tira o que venceu. Guarda a versão anterior em ${MemoryStore.BACKUP}.")
+                MemoryOrganizer.status?.let { Hint(it) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { editing = !editing; draft = memory.text }) {
                         Text(if (editing) "Fechar" else "Ver e editar")
                     }
                     TextButton(onClick = memory::refresh) { Text("Recarregar") }
+                    TextButton(onClick = { MemoryOrganizer.runNow(context) }) { Text("Organizar agora") }
                 }
                 if (editing) {
                     OutlinedTextField(value = draft, onValueChange = { draft = it },

@@ -208,7 +208,19 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
     }
 
-    private fun chatSystem(base: String) = base + UserProfile.get(getApplication()).identity(canSave = false) + memory.promptBlock()
+    private fun chatSystem(base: String, canSave: Boolean = false) =
+        base + UserProfile.get(getApplication()).identity(canSave) + memory.promptBlock()
+
+    private val agentTools by lazy { AgentTools(getApplication(), background = false) }
+
+    /** Ferramentas do app (alarmes, agenda, rotinas, memória, mensagens) também no chat escrito com Gemini. */
+    var chatTools by androidx.compose.runtime.mutableStateOf(settings.getBoolean("chat_tools", true))
+        private set
+
+    fun updateChatTools(value: Boolean) {
+        chatTools = value
+        settings.edit().putBoolean("chat_tools", value).apply()
+    }
 
     /** Texto recebido pelo "Compartilhar" do Android, colocado no campo de mensagem. */
     var incomingText by androidx.compose.runtime.mutableStateOf<String?>(null)
@@ -246,7 +258,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     val choices = if (selectedFile != null) listOf(ChatModel.GEMINI_25)
                         else ChatModel.candidates(selectedModel, fallback)
                     var answer: String? = null
-                    var search = googleSearch
+                    // Anexos seguem só para análise; o chat com ferramentas age como o Live.
+                    val tools = if (selectedFile == null && chatTools) agentTools else null
                     for ((index, choice) in choices.withIndex()) {
                         activeModel = choice
                         activeTextModel = "Gemini · ${choice.label}"
@@ -255,18 +268,10 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                 val stream: (String) -> Unit = { partial ->
                                     main.post { if (busy && activeModel == choice) streamingText = partial }
                                 }
-                                try {
-                                    GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
-                                        systemPrompt = chatSystem(GeminiClient.DEFAULT_SYSTEM),
-                                        googleSearch = search, onPartial = stream)
-                                } catch (failure: GeminiHttpException) {
-                                    // Alguns modelos ou anexos recusam a ferramenta de pesquisa: responde sem ela.
-                                    if (!search || failure.status != 400) throw failure
-                                    search = false
-                                    diagnostics.record("Pesquisa Google", "${choice.label} recusou a pesquisa (HTTP 400); respondendo sem ela.")
-                                    GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
-                                        systemPrompt = chatSystem(GeminiClient.DEFAULT_SYSTEM), onPartial = stream)
-                                }
+                                TextModel.gemini(key, choice, snapshot, thinkingMode, part,
+                                    chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null),
+                                    45_000, googleSearch, tools, onDowngrade = { diagnostics.record("Chat Gemini", it) },
+                                    onPartial = stream)
                             }
                             lastAnswerModel = choice
                             break
@@ -344,5 +349,13 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         return true
+    }
+
+    private companion object {
+        const val TOOLS_GUIDE = " Você tem as ferramentas do app no celular do usuário: alarmes, timers, agenda, contatos, " +
+            "mensagens e ligações prontas, rotas, notificações, rotinas agendadas, apps e a sua memória. Use-as quando o " +
+            "usuário pedir para agir ou quando precisar dos dados delas, e diga em uma frase o que fez. Mensagens e ligações " +
+            "só abrem a tela pronta: o usuário é quem envia ou liga. Anote na memória (memory_note) fatos duradouros que o " +
+            "usuário contar. Nunca diga que fez algo se a ferramenta devolveu erro."
     }
 }
