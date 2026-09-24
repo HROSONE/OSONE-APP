@@ -10,22 +10,35 @@ O Android instala uma versão por cima da anterior somente quando o `application
 4. Execute o workflow **Android** no GitHub Actions. Baixe apenas o artefato **ostie-release-assinado** para instalar e atualizar. O artefato **ostie-debug-assinatura-temporaria** é apenas para desenvolvimento; a assinatura muda em cada execução. Guarde também um backup seguro do primeiro APK assinado para comparar o certificado em versões futuras.
 5. A cada lançamento, aumente o `versionCode` em `app/build.gradle.kts`, sem mudar o `applicationId` nem a chave.
 
-## Botão nas Configurações
+## Atualização automática (canal oficial)
 
-Em **Configurações → Atualizações**, informe o endereço HTTPS de um `latest.json` acessível ao celular, toque em **Procurar atualização** e então em **Baixar e instalar atualização**. O app verifica o SHA-256 do download, identificador, versão e certificado e abre o instalador do Android para você confirmar. O Android pode pedir antes permissão para instalar apps desta origem. Também há **Escolher APK já baixado**: útil quando você baixou manualmente o artefato assinado e ainda não publicou um canal HTTPS.
+O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada num **repositório público separado, que contém apenas APKs e o `latest.json`** (sem código nem segredos). O app já vem apontando para esse canal.
 
-Exemplo de `latest.json` hospedado junto a um APK acessível por HTTPS:
+Configuração, feita uma única vez:
+
+1. Crie o repositório público `zerobob623-bit/ostie-releases` marcando **Add a README file** (o Release precisa de um commit inicial). Para outro nome, crie a variável de Actions `OSTIE_RELEASES_REPO` com `dono/nome`.
+2. Crie um token *fine-grained* em **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**: acesso somente ao repositório `ostie-releases`, permissão **Contents: Read and write**.
+3. Em **OSONE-APP → Settings → Secrets and variables → Actions**, crie o secret `OSTIE_RELEASES_TOKEN` com esse token.
+4. Faça merge na `main` (ou rode o workflow **Android** manualmente). A CI numera a versão automaticamente (`versionCode = 100 + número da execução`), assina, publica `ostie-<versão>.apk` e `latest.json` e marca como *latest*.
+5. No celular, instale uma vez o artefato **ostie-release-assinado** (desinstalando antes uma versão de depuração, se for o caso). Daí em diante:
+   - o app procura versões ao abrir (no máximo a cada 6 h) e uma vez por dia em segundo plano;
+   - avisa com "Atualizar agora" ou por notificação; um toque baixa, confere SHA-256, pacote, versão e certificado, e instala;
+   - no Android 12+, quando a versão anterior também foi instalada pelo próprio OSTIE, o Android pode aplicar a atualização sem pedir confirmação. Na primeira vez (e em versões anteriores do Android), confirme no instalador.
+
+Em **Configurações → Atualizações** é possível desligar "Atualizar automaticamente", procurar agora e, em **Opções avançadas**, usar um canal próprio ou instalar um APK já baixado.
+
+Formato do `latest.json` (gerado pela CI; útil para canais próprios):
 
 ```json
 {
-  "versionCode": 14,
-  "versionName": "0.14.0",
-  "apkUrl": "https://SEU-DOMINIO/ostie-v0.14.0.apk",
-  "sha256": "SUBSTITUA_PELOS_64_DIGITOS_HEXADECIMAIS_DO_SHA256_DO_APK",
+  "versionCode": 140,
+  "versionName": "0.15.40",
+  "apkUrl": "https://github.com/zerobob623-bit/ostie-releases/releases/download/v0.15.40/ostie-140.apk",
+  "sha256": "64 dígitos hexadecimais do SHA-256 do APK",
   "notes": "Novidades desta versão"
 }
 ```
 
-Calcule o hash do arquivo final com `sha256sum ostie-v0.14.0.apk`. Atualize o JSON **depois** de disponibilizar o APK, usando o mesmo `versionCode` que está dentro dele. Um artefato de GitHub Actions em repositório privado exige autenticação e não é um link HTTPS público permanente: para verificação automática no celular é necessário configurar hospedagem HTTPS acessível ao aparelho. Não coloque tokens privados dentro do JSON, do link ou do APK. Sem hospedagem, use **Escolher APK já baixado**.
+Não coloque tokens no JSON, no link ou no APK.
 
 Se o certificado do APK antigo for diferente do novo, o app avisará antes de tentar instalar. Não há atualização por cima sem uma chave compatível; antes de migrar, preserve suas chaves de API para cadastrar novamente.

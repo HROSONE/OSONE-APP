@@ -285,3 +285,13 @@ fun CodeAuthorPicker(author: CodeAuthor) {
     OptionPicker("Quem escreve código pedido por voz", author.preference.label, CodeAuthorChoice.entries,
         { it.label }, author::updatePreference)
 }
+
+@Composable
+fun UpdatePromptDialog(release: OstieUpdate, onUpdate: () -> Unit, onLater: () -> Unit) {
+    AlertDialog(onDismissRequest = onLater,
+        icon = { Icon(OstieIcons.ArrowDown, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("OSTIE ${release.versionName} disponível") },
+        text = { Text(release.notes.ifBlank { "Uma nova versão está pronta. Seus dados e chaves são mantidos." }) },
+        confirmButton = { Button(onClick = onUpdate) { Text("Atualizar agora") } },
+        dismissButton = { TextButton(onClick = onLater) { Text("Depois") } })
+}

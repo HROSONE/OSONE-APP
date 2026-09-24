@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.media.AudioManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
@@ -47,6 +48,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var bubblePermission by mutableStateOf(false)
     private var accessibilityEnabled by mutableStateOf(false)
     private var overlayRequested = false
+    /** Toque na notificação de atualização: abre Ajustes e instala. */
+    private var installRequested by mutableStateOf(false)
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val diagnostics by lazy { AppDiagnostics.get(applicationContext) }
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openLive() else { permissionError = true; diagnostics.record("Permissão", "Acesso ao microfone negado.") }
@@ -89,6 +93,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             else (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         applySystemBars()
         speech = TextToSpeech(this, this)
+        installRequested = intent?.getBooleanExtra(UpdateCheckWorker.EXTRA_INSTALL, false) == true
+        UpdateCheckWorker.schedule(this, updater.autoUpdate)
+        if (Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {
+            preferences.edit().putBoolean("asked_notifications", true).apply()
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (!installRequested) lifecycleScope.launch { updater.checkOnLaunch() }
         setContent {
             var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
@@ -96,6 +107,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             // Código pedido por voz aparece sendo escrito na Aba de Escrita, mesmo sem perguntar.
             LaunchedEffect(codeAuthor.writingWith) {
                 if (codeAuthor.writingWith != null) { showWriting = true; showLive = false; showSettings = false }
+            }
+            LaunchedEffect(installRequested) {
+                if (installRequested) {
+                    installRequested = false
+                    showSettings = true; showLive = false; showWriting = false
+                    updater.checkAndInstall()
+                }
             }
             OstieTheme(darkMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -158,6 +176,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             if (readAloud) speech?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "osone_resposta")
                         })
                     if (showDiagnostics) DiagnosticsDialog(diagnostics, onClose = { showDiagnostics = false })
+                    updater.prompt?.let { release ->
+                        UpdatePromptDialog(release, onUpdate = {
+                            showSettings = true; showLive = false; showWriting = false
+                            lifecycleScope.launch { updater.checkAndInstall() }
+                        }, onLater = updater::dismissPrompt)
+                    }
                     codeAuthor.pending?.let { request ->
                         CodeAuthorDialog(request, voiceLabel = if (live.connected) live.active?.label else null,
                             textLabel = codeAuthor.textModelLabel(),
@@ -181,6 +205,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) speech?.language = Locale("pt", "BR")
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(UpdateCheckWorker.EXTRA_INSTALL, false)) installRequested = true
+    }
+
     override fun onResume() {
         super.onResume()
         bubblePermission = Settings.canDrawOverlays(this)

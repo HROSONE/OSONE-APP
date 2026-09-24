@@ -70,21 +70,29 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                 Hint("O modelo de texto é o escolhido em Chat escrito acima.")
             }
             SectionCard("Atualizações", OstieIcons.ArrowDown) {
-                OutlinedTextField(value = updater.feedUrl, onValueChange = updater::updateFeedUrl,
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = MaterialTheme.shapes.medium,
-                    label = { Text("Canal HTTPS (latest.json)") })
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { scope.launch { updater.check() } }, enabled = !updater.busy) { Text("Procurar") }
-                    OutlinedButton(onClick = onPickUpdate, enabled = !updater.busy) { Text("Escolher APK") }
+                var custom by remember { mutableStateOf(updater.feedUrl.isNotBlank()) }
+                Text("Versão instalada: ${updater.installedVersionName}", style = MaterialTheme.typography.bodyMedium)
+                SettingSwitch("Atualizar automaticamente", updater.autoUpdate, updater::updateAutoUpdate,
+                    "Procura versões novas ao abrir o app e uma vez por dia, avisa por notificação e instala com um toque.")
+                val release = updater.available
+                if (release != null) Button(onClick = { scope.launch { updater.downloadAndInstall() } }, enabled = !updater.busy) {
+                    Text("Instalar OSTIE ${release.versionName}")
+                } else OutlinedButton(onClick = { scope.launch { updater.check() } }, enabled = !updater.busy) {
+                    Text(if (updater.busy) "Procurando…" else "Procurar agora")
                 }
-                updater.available?.let { release ->
-                    Text("Versão ${release.versionName} disponível. ${release.notes}")
-                    Button(onClick = { scope.launch { updater.downloadAndInstall() } }, enabled = !updater.busy) {
-                        Text("Baixar e instalar")
-                    }
-                }
+                if (updater.busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
                 if (updater.status.isNotBlank()) Hint(updater.status)
-                Hint("O Android só atualiza se o APK tiver o mesmo identificador e assinatura. A instalação pede sua confirmação.")
+                release?.notes?.takeIf { it.isNotBlank() }?.let { Hint("Novidades: $it") }
+                TextButton(onClick = { custom = !custom }) {
+                    Text(if (custom) "Ocultar opções avançadas" else "Opções avançadas")
+                }
+                if (custom) {
+                    OutlinedTextField(value = updater.feedUrl, onValueChange = updater::updateFeedUrl,
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, shape = MaterialTheme.shapes.medium,
+                        label = { Text("Canal personalizado (vazio = oficial)") })
+                    OutlinedButton(onClick = onPickUpdate, enabled = !updater.busy) { Text("Instalar APK já baixado") }
+                    Hint("O Android só atualiza se o APK tiver a mesma assinatura da versão instalada.")
+                }
             }
             SectionCard("Dados", OstieIcons.Delete) {
                 OutlinedButton(onClick = { confirmClear = true }, colors = ButtonDefaults.outlinedButtonColors(

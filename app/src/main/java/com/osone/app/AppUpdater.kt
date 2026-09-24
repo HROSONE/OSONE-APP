@@ -1,8 +1,11 @@
 package com.osone.app
 
 import android.app.Activity
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -10,7 +13,6 @@ import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -26,9 +28,15 @@ data class OstieUpdate(val versionCode: Long, val versionName: String, val apkUr
 /** Instalador assistido: só aceita versão superior, pacote idêntico e mesmo certificado. */
 class AppUpdater(private val activity: Activity) {
     private val preferences = activity.getSharedPreferences("ostie_updates", 0)
+    /** Vazio = canal oficial publicado pela CI; o campo só aparece em "Canal personalizado". */
     var feedUrl by mutableStateOf(preferences.getString("feed_url", "").orEmpty())
         private set
-    var status by mutableStateOf("Configure um canal HTTPS para procurar atualizações.")
+    var autoUpdate by mutableStateOf(preferences.getBoolean("auto_update", true))
+        private set
+    var status by mutableStateOf("")
+        private set
+    /** Versão encontrada ao abrir o app, ainda não recusada: mostra o aviso "Atualizar agora". */
+    var prompt by mutableStateOf<OstieUpdate?>(null)
         private set
     var busy by mutableStateOf(false)
         private set
@@ -43,15 +51,51 @@ class AppUpdater(private val activity: Activity) {
         available = null
     }
 
+    fun updateAutoUpdate(enabled: Boolean) {
+        autoUpdate = enabled
+        preferences.edit().putBoolean("auto_update", enabled).apply()
+        UpdateCheckWorker.schedule(activity, enabled)
+    }
+
+    val installedVersionName: String get() = installedPackage().versionName.orEmpty()
+
+    /** Ao abrir o app: no máximo a cada 6 h, silencioso se não houver novidade ou se falhar. */
+    suspend fun checkOnLaunch() {
+        if (!autoUpdate || busy) return
+        val now = System.currentTimeMillis()
+        if (now - preferences.getLong("last_check", 0L) < 6 * 3600_000L) return
+        preferences.edit().putLong("last_check", now).apply()
+        val release = try { withContext(Dispatchers.IO) { UpdateFeed.fetch(UpdateFeed.address(activity)) } }
+            catch (_: Exception) { return }
+        if (release.versionCode > installedVersion()) {
+            available = release
+            status = "OSTIE ${release.versionName} disponível."
+            if (preferences.getLong("dismissed_code", 0L) != release.versionCode) prompt = release
+        }
+    }
+
+    fun dismissPrompt() {
+        prompt?.let { preferences.edit().putLong("dismissed_code", it.versionCode).apply() }
+        prompt = null
+    }
+
+    /** Procura e, se houver versão nova, já baixa e instala (usado pelo aviso e pela notificação). */
+    suspend fun checkAndInstall() {
+        prompt = null
+        check()
+        if (available != null) downloadAndInstall()
+    }
+
     suspend fun check() {
         if (busy) return
         busy = true; available = null; status = "Procurando atualização…"
         try {
-            val release = withContext(Dispatchers.IO) { fetchRelease(feedUrl.trim()) }
+            val release = withContext(Dispatchers.IO) { UpdateFeed.fetch(UpdateFeed.address(activity)) }
+            preferences.edit().putLong("last_check", System.currentTimeMillis()).apply()
             status = if (release.versionCode > installedVersion()) {
                 available = release
                 "OSTIE ${release.versionName} disponível."
-            } else "OSTIE já está atualizado neste canal."
+            } else "OSTIE está atualizado (versão ${installedVersionName})."
         } catch (failure: Exception) { showError(failure) }
         finally { busy = false }
     }
@@ -63,7 +107,7 @@ class AppUpdater(private val activity: Activity) {
         try {
             val apk = withContext(Dispatchers.IO) { download(release) }
             prepared = apk
-            status = "APK conferido. Abrindo instalador do Android…"
+            status = "APK conferido. Instalando…"
             installPrepared()
         } catch (failure: Exception) { showError(failure) }
         finally { busy = false }
@@ -81,7 +125,7 @@ class AppUpdater(private val activity: Activity) {
                 destination
             }
             prepared = apk
-            status = "APK compatível. Abrindo instalador do Android…"
+            status = "APK compatível. Instalando…"
             installPrepared()
         } catch (failure: Exception) { showError(failure) }
         finally { busy = false }
@@ -104,14 +148,41 @@ class AppUpdater(private val activity: Activity) {
                     Uri.parse("package:${activity.packageName}")))
                 return
             }
-            // Confere novamente antes de abrir o instalador, inclusive após sair para as configurações.
+            // Confere novamente antes de instalar, inclusive após sair para as configurações.
             verifyPackage(apk)
-            val content = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", apk)
-            activity.startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE)
-                .setDataAndType(content, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-            status = "Confirme a atualização no instalador do Android. Seus dados são preservados se a assinatura coincidir."
+            installWithSession(apk)
+            status = "Instalando… Se o Android pedir, confirme. O app reinicia na versão nova com seus dados."
         } catch (failure: Exception) { showError(failure) }
+    }
+
+    /**
+     * Sessão do PackageInstaller: no Android 12+, quando o próprio OSTIE fez a instalação anterior,
+     * o sistema pode aplicar a atualização sem pedir confirmação. Caso contrário, abre a confirmação.
+     */
+    private fun installWithSession(apk: File) {
+        val installer = activity.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setAppPackageName(activity.packageName)
+            if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+        }
+        val sessionId = installer.createSession(params)
+        try {
+            installer.openSession(sessionId).use { session ->
+                session.openWrite("ostie.apk", 0, apk.length()).use { output ->
+                    apk.inputStream().use { it.copyTo(output) }
+                    session.fsync(output)
+                }
+                // O sistema preenche o resultado nos extras: precisa ser mutável e explícito.
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
+                val callback = PendingIntent.getBroadcast(activity, sessionId,
+                    Intent(activity, UpdateStatusReceiver::class.java).setPackage(activity.packageName), flags)
+                session.commit(callback.intentSender)
+            }
+        } catch (failure: Exception) {
+            installer.abandonSession(sessionId)
+            throw failure
+        }
     }
 
     private fun installedVersion(): Long = versionOf(installedPackage())
@@ -146,33 +217,8 @@ class AppUpdater(private val activity: Activity) {
         }
     }
 
-    private fun fetchRelease(address: String): OstieUpdate {
-        require(address.isNotBlank()) { "Informe o endereço HTTPS do canal de atualizações." }
-        val connection = openHttps(address)
-        val bytes = try { connection.inputStream.use { input ->
-            val buffer = ByteArrayOutputStream()
-            val block = ByteArray(4096)
-            while (true) {
-                val count = input.read(block)
-                if (count < 0) break
-                require(buffer.size() + count <= 32_000) { "Resposta de atualizações grande demais." }
-                buffer.write(block, 0, count)
-            }
-            buffer.toByteArray()
-        } } finally { connection.disconnect() }
-        val json = JSONObject(String(bytes, Charsets.UTF_8))
-        val hash = json.optString("sha256").lowercase()
-        require(Regex("[0-9a-f]{64}").matches(hash)) { "O canal não informou um SHA-256 válido." }
-        val apk = json.optString("apkUrl")
-        require(URL(apk).protocol.equals("https", true)) { "O endereço do APK precisa ser HTTPS." }
-        val code = json.optLong("versionCode", 0)
-        require(code > 0) { "O canal não informou versionCode válido." }
-        return OstieUpdate(code, json.optString("versionName", code.toString()), apk,
-            hash, json.optString("notes").take(500))
-    }
-
     private fun download(release: OstieUpdate): File {
-        val connection = openHttps(release.apkUrl)
+        val connection = UpdateFeed.openHttps(release.apkUrl)
         val file = stagingFile()
         val digest = MessageDigest.getInstance("SHA-256")
         try {
@@ -222,7 +268,45 @@ class AppUpdater(private val activity: Activity) {
         return File(directory, "update.apk")
     }
 
-    private fun openHttps(raw: String): HttpURLConnection {
+    private fun showError(failure: Exception) {
+        status = failure.message?.take(220) ?: "Não consegui verificar esta atualização."
+        AppDiagnostics.get(activity).record("Atualização", status)
+    }
+}
+
+/** Canal de atualizações: o oficial vem da CI (repositório público só com APKs assinados). */
+object UpdateFeed {
+    const val OFFICIAL = "https://github.com/zerobob623-bit/ostie-releases/releases/latest/download/latest.json"
+
+    fun address(context: Context): String = context.getSharedPreferences("ostie_updates", 0)
+        .getString("feed_url", "").orEmpty().trim().ifEmpty { OFFICIAL }
+
+    fun fetch(address: String): OstieUpdate {
+        require(address.isNotBlank()) { "Informe o endereço HTTPS do canal de atualizações." }
+        val connection = openHttps(address)
+        val bytes = try { connection.inputStream.use { input ->
+            val buffer = ByteArrayOutputStream()
+            val block = ByteArray(4096)
+            while (true) {
+                val count = input.read(block)
+                if (count < 0) break
+                require(buffer.size() + count <= 32_000) { "Resposta de atualizações grande demais." }
+                buffer.write(block, 0, count)
+            }
+            buffer.toByteArray()
+        } } finally { connection.disconnect() }
+        val json = JSONObject(String(bytes, Charsets.UTF_8))
+        val hash = json.optString("sha256").lowercase()
+        require(Regex("[0-9a-f]{64}").matches(hash)) { "O canal não informou um SHA-256 válido." }
+        val apk = json.optString("apkUrl")
+        require(URL(apk).protocol.equals("https", true)) { "O endereço do APK precisa ser HTTPS." }
+        val code = json.optLong("versionCode", 0)
+        require(code > 0) { "O canal não informou versionCode válido." }
+        return OstieUpdate(code, json.optString("versionName", code.toString()), apk,
+            hash, json.optString("notes").take(500))
+    }
+
+    fun openHttps(raw: String): HttpURLConnection {
         var url = URL(raw)
         repeat(6) {
             require(url.protocol.equals("https", true)) { "O link da atualização precisa ser HTTPS." }
@@ -238,15 +322,10 @@ class AppUpdater(private val activity: Activity) {
                 connection.disconnect()
             } else {
                 connection.disconnect()
-                error(if (code == 404) "Canal indisponível. Repositório privado não fornece APK público."
+                error(if (code == 404) "Nenhuma versão publicada no canal ainda."
                     else "Servidor de atualização respondeu HTTP $code.")
             }
         }
         error("Atualização teve redirecionamentos demais.")
-    }
-
-    private fun showError(failure: Exception) {
-        status = failure.message?.take(220) ?: "Não consegui verificar esta atualização."
-        AppDiagnostics.get(activity).record("Atualização", status)
     }
 }
