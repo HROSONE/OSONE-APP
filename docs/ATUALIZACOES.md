@@ -12,17 +12,18 @@ O Android instala uma versão por cima da anterior somente quando o `application
 
 ## Atualização automática (canal oficial)
 
-O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada no repositório público **`HROSONE/OSONE-AI-releases`**, o mesmo dos instaladores do OSONE desktop, sem código nem segredos.
+O repositório `OSONE-APP` é privado, então o celular não consegue baixar os Releases dele sem senha. A CI publica cada versão assinada no repositório público **`HROSONE/OSTIE-AI-releases`**, só com os APKs do OSTIE, sem código nem segredos.
 
 Para não misturar os dois apps:
 
 - cada versão do OSTIE vira um Release `ostie-v<versão>` marcado como **pré-lançamento** e nunca como *latest*, então o atualizador do OSONE desktop não o enxerga;
+- o repositório de releases passa a se chamar `OSTIE-AI-releases`: a CI pergunta ao GitHub o nome atual antes de publicar, e o app tenta o nome novo e depois os anteriores;
 - o nome de usuário no GitHub mudou de `zerobob623-bit` para `HROSONE`: a CI publica no dono atual do repositório, e o app tenta o endereço novo e, se falhar, o antigo (desde a versão que trouxe essa mudança);
-- o app lê um Release fixo, `ostie-latest`, cujo `latest.json` é substituído a cada versão: `https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-latest/latest.json`.
+- o app lê um Release fixo, `ostie-latest`, cujo `latest.json` é substituído a cada versão: `https://github.com/HROSONE/OSTIE-AI-releases/releases/download/ostie-latest/latest.json`.
 
 Configuração, feita uma única vez:
 
-1. Crie um token *fine-grained* em **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**, com acesso somente ao repositório `OSONE-AI-releases` e permissão **Contents: Read and write**.
+1. Crie um token *fine-grained* em **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**, com acesso somente ao repositório `OSTIE-AI-releases` e permissão **Contents: Read and write**.
 2. Em **OSONE-APP → Settings → Secrets and variables → Actions**, crie o secret `OSTIE_RELEASES_TOKEN` com esse token. (Para usar outro repositório, crie a variável de Actions `OSTIE_RELEASES_REPO` com `dono/nome` e ajuste `UpdateFeed.OFFICIAL` no app.)
 3. Faça merge na `main` ou rode o workflow **Android** manualmente. A CI numera a versão automaticamente (`versionCode = 100 + número da execução`), assina e publica `ostie-<versão>.apk` e o `latest.json`.
 4. No celular, instale uma vez o artefato **ostie-release-assinado** (desinstalando antes uma versão de depuração, se for o caso). Daí em diante:
@@ -38,7 +39,7 @@ Formato do `latest.json` (gerado pela CI; útil para canais próprios):
 {
   "versionCode": 140,
   "versionName": "0.15.40",
-  "apkUrl": "https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-v0.15.40/ostie-140.apk",
+  "apkUrl": "https://github.com/HROSONE/OSTIE-AI-releases/releases/download/ostie-v0.15.40/ostie-140.apk",
   "sha256": "64 dígitos hexadecimais do SHA-256 do APK",
   "notes": "Novidades desta versão"
 }

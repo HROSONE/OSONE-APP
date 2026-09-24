@@ -70,13 +70,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.OSTIE_RELEASES_TOKEN }}
-          # Dono atual do repositório: continua certo depois de uma troca de nome de usuário.
-          RELEASES_REPO: ${{ vars.OSTIE_RELEASES_REPO || format('{0}/OSONE-AI-releases', github.repository_owner) }}
+          RELEASES_REPO: ${{ vars.OSTIE_RELEASES_REPO }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo 'OSTIE_RELEASES_TOKEN não configurado; atualização não publicada. Veja docs/ATUALIZACOES.md.'
             exit 0
           fi
+          # Nome atual do repositório de releases: o GitHub resolve renomeações do repositório e do dono.
+          if [ -z "$RELEASES_REPO" ]; then
+            RELEASES_REPO=$(gh api "repos/${{ github.repository_owner }}/OSTIE-AI-releases" --jq .full_name 2>/dev/null \
+              || gh api "repos/${{ github.repository_owner }}/OSONE-AI-releases" --jq .full_name)
+          fi
+          echo "Publicando em $RELEASES_REPO"
           APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
           if [ -z "$APK" ]; then
             echo 'Sem APK com assinatura permanente; nada a publicar.'
