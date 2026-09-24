@@ -196,7 +196,7 @@ class CodeAuthor private constructor(context: Context) {
         val choices = ChatModel.candidates(selected, preferences.getBoolean("chat_fallback", true))
         for ((index, choice) in choices.withIndex()) {
             try {
-                return GeminiClient().streamAnswer(key, choice, history, mode, null, SYSTEM, 180_000, onPartial)
+                return GeminiClient().streamAnswer(key, choice, history, mode, null, SYSTEM, 180_000, onPartial = onPartial)
             } catch (failure: GeminiHttpException) {
                 if (!failure.allowsFallback || index == choices.lastIndex) throw failure
             }
