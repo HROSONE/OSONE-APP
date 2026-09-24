@@ -44,4 +44,20 @@ class DocumentPreviewTest {
         assertEquals("html" to "<div>grande bloco</div>", DocumentPreview.codeBlock(message))
         assertNull(DocumentPreview.codeBlock("Sem código aqui."))
     }
+
+    @Test fun markupIsFoundInsideExplanations() {
+        val answer = "Claro! Aqui está sua página:\n\n```html\n<!doctype html><html><body><h1>Oi</h1></body></html>\n```\n\nQuer mudar algo?"
+        assertTrue(DocumentPreview.looksLikeMarkup(answer))
+        assertEquals("html", DocumentPreview.detectFormat("text", answer))
+        assertEquals("<!doctype html><html><body><h1>Oi</h1></body></html>", DocumentPreview.extractMarkup(answer))
+        val svg = "Segue o desenho: <svg viewBox=\"0 0 10 10\"><circle r=\"4\"/></svg> pronto."
+        assertEquals("<svg viewBox=\"0 0 10 10\"><circle r=\"4\"/></svg>", DocumentPreview.extractMarkup(svg))
+        assertTrue(DocumentPreview.page(svg).contains("<body><svg viewBox"))
+    }
+
+    @Test fun networkResourcesAreDetected() {
+        assertTrue(DocumentPreview.usesNetwork("<script src=\"https://cdn.tailwindcss.com\"></script>"))
+        assertTrue(DocumentPreview.usesNetwork("<link href='https://fonts.googleapis.com/css2?family=Inter' rel=stylesheet>"))
+        assertFalse(DocumentPreview.usesNetwork("<p>Sem nada externo</p><a href=\"#topo\">topo</a>"))
+    }
 }

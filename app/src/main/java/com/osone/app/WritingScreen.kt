@@ -21,6 +21,7 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel, codeAut
     val context = LocalContext.current
     var preview by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var allowNetwork by remember { mutableStateOf(false) }
     val hasContent = workspace.content.isNotBlank()
     val html = workspace.format == "html"
     // Documento HTML/SVG recém-enviado pelo OSTIE abre direto no preview.
@@ -84,29 +85,42 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel, codeAut
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     placeholder = { Text("Aguardando o primeiro trecho do código…") })
             } else if (current != null) {
-                Surface(shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxSize()) {
-                    AndroidView(factory = { activity -> WebView(activity).apply {
-                        settings.javaScriptEnabled = true
-                        settings.blockNetworkLoads = true
-                        settings.allowFileAccess = false
-                        settings.allowContentAccess = false
-                        settings.domStorageEnabled = false
-                        settings.javaScriptCanOpenWindowsAutomatically = false
-                        settings.useWideViewPort = true
-                        settings.loadWithOverviewMode = true
-                        settings.builtInZoomControls = true
-                        settings.displayZoomControls = false
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean = true
-                        }
-                        setBackgroundColor(android.graphics.Color.WHITE)
-                    } }, update = { web ->
-                        // Recarrega só quando o documento muda; recomposições não reiniciam a página.
-                        if (web.tag != current) {
-                            web.tag = current
-                            web.loadDataWithBaseURL("about:blank", current, "text/html", "UTF-8", null)
-                        }
-                    }, onRelease = { it.destroy() }, modifier = Modifier.fillMaxSize())
+                // Sem recorte arredondado: WebView dentro de clip pode ficar em branco em alguns aparelhos.
+                Column(Modifier.fillMaxSize()) {
+                    if (DocumentPreview.usesNetwork(current)) Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                        Text(if (allowNetwork) "Carregando recursos da internet (CDN, fontes, imagens)."
+                            else "A página usa recursos da internet, bloqueados por segurança.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = { allowNetwork = !allowNetwork }) { Text(if (allowNetwork) "Bloquear" else "Permitir") }
+                    }
+                    key(allowNetwork) {
+                        AndroidView(factory = { activity -> WebView(activity).apply {
+                            settings.javaScriptEnabled = true
+                            settings.blockNetworkLoads = !allowNetwork
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            settings.domStorageEnabled = true
+                            settings.javaScriptCanOpenWindowsAutomatically = false
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+                            settings.builtInZoomControls = true
+                            settings.displayZoomControls = false
+                            webViewClient = object : WebViewClient() {
+                                // Links não saem do preview; a página continua isolada do app.
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean = true
+                            }
+                            setBackgroundColor(android.graphics.Color.WHITE)
+                        } }, update = { web ->
+                            // Recarrega só quando o documento muda; recomposições não reiniciam a página.
+                            if (web.tag != current) {
+                                web.tag = current
+                                // Origem própria (não opaca): páginas com localStorage funcionam no preview.
+                                web.loadDataWithBaseURL("https://preview.ostie.local/", current, "text/html", "UTF-8", null)
+                            }
+                        }, onRelease = { it.destroy() }, modifier = Modifier.fillMaxWidth().weight(1f))
+                    }
                 }
             } else {
                 OutlinedTextField(value = workspace.content, onValueChange = workspace::updateContent,
