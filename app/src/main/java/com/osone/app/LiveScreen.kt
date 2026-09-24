@@ -97,6 +97,7 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
                 !live.connected && live.attempts.isNotEmpty() -> "Falha na conexão · toque no indicador para detalhes"
                 live.muted -> "Microfone silenciado"
                 session && live.selected != live.active -> "Usando reserva: ${live.active?.label}"
+                live.connected && live.reducedMode != null -> "Modo reduzido: ${live.reducedMode} (o modelo recusou a configuração completa)"
                 live.connected && !live.localToolsAvailable -> "Somente voz nesta sessão · ações locais indisponíveis"
                 else -> null
             }
@@ -268,6 +269,10 @@ private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, phone: P
         SettingSwitch("Proteção de eco", live.echoGuard, live::updateEchoGuard,
             "No alto-falante, impede que a voz do OSTIE interrompa a si mesma. Fale mais alto para interromper. Com fones, fica desligada sozinha.")
         CodeAuthorPicker(codeAuthor)
+        live.reducedMode?.let { mode ->
+            Hint("Este modelo está conectando $mode porque recusou a configuração completa.")
+            OutlinedButton(onClick = live::resetCapabilities) { Text("Tentar configuração completa") }
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text("Ferramentas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         PanelRow(OstieIcons.Document, "Aba de Escrita", "Textos e códigos pedidos por voz", onWriting)
