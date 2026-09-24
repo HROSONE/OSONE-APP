@@ -280,19 +280,23 @@ class AppUpdater(private val activity: Activity) {
  * virar o "latest" que o atualizador do desktop lê.
  */
 object UpdateFeed {
-    const val OFFICIAL = "https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-latest/latest.json"
-    /** Endereço antes da troca do nome de usuário no GitHub; reserva enquanto a troca não acontece. */
-    const val LEGACY = "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json"
+    const val OFFICIAL = "https://github.com/HROSONE/OSTIE-AI-releases/releases/download/ostie-latest/latest.json"
+    /** Endereços anteriores (nome do repositório e do usuário); reserva enquanto as trocas não acontecem. */
+    val LEGACY = listOf(
+        "https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-latest/latest.json",
+        "https://github.com/zerobob623-bit/OSONE-AI-releases/releases/download/ostie-latest/latest.json")
 
     fun address(context: Context): String = context.getSharedPreferences("ostie_updates", 0)
-        .getString("feed_url", "").orEmpty().trim().let { if (it.isEmpty() || it == LEGACY) OFFICIAL else it }
+        .getString("feed_url", "").orEmpty().trim().let { if (it.isEmpty() || it in LEGACY) OFFICIAL else it }
 
-    /** O canal oficial tenta o nome novo e, se falhar, o antigo; um canal personalizado é lido direto. */
+    /** O canal oficial tenta o endereço atual e, se falhar, os anteriores; um canal personalizado é lido direto. */
     fun fetch(address: String): OstieUpdate {
         if (address != OFFICIAL) return read(address)
-        return try { read(OFFICIAL) } catch (failure: Exception) {
-            try { read(LEGACY) } catch (_: Exception) { throw failure }
+        var failure: Exception? = null
+        for (candidate in listOf(OFFICIAL) + LEGACY) {
+            try { return read(candidate) } catch (error: Exception) { if (failure == null) failure = error }
         }
+        throw failure ?: IllegalStateException("Canal de atualizações indisponível.")
     }
 
     private fun read(address: String): OstieUpdate {

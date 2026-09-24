@@ -26,7 +26,7 @@ O ambiente não tem SDK Android (dl.google.com é bloqueado); quem compila é a 
 ## CI e publicação
 
 - `.github/workflows/android.yml`: PR roda testes e compila o APK de teste; push na `main` compila o APK assinado e publica.
-- Publicação: pré-lançamento `ostie-v<versão>` e release fixo `ostie-latest` com `latest.json` no repositório público `HROSONE/OSONE-AI-releases`. O app lê `https://github.com/HROSONE/OSONE-AI-releases/releases/download/ostie-latest/latest.json` (com o endereço antigo `zerobob623-bit` como reserva).
+- Publicação: pré-lançamento `ostie-v<versão>` e release fixo `ostie-latest` com `latest.json` no repositório público `HROSONE/OSTIE-AI-releases`. O app lê `https://github.com/HROSONE/OSTIE-AI-releases/releases/download/ostie-latest/latest.json` (com os endereços antigos, `HROSONE/OSONE-AI-releases` e `zerobob623-bit/OSONE-AI-releases`, como reserva).
 - `versionCode` = 100 + número da execução; `versionName` = `0.15.<versionCode - 100>`.
 - Depois de mesclar, confira o `latest.json` (versão nova) e o SHA-256 do APK publicado.
 - Minutos de CI são limitados: agrupe mudanças num PR; mudanças só em `*.md` e `docs/` não rodam CI.
