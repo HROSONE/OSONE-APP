@@ -20,7 +20,7 @@ import java.util.Locale
 
 /**
  * Memória do OSTIE como anotações Markdown em Documentos/OSTIE/memoria.md.
- * A pasta fica fora do app: sobrevive a reinstalações e pode ser lida ou editada pelo próprio Henrique.
+ * A pasta fica fora do app: sobrevive a reinstalações e pode ser lida ou editada pelo próprio usuário.
  * Uma cópia interna garante que a memória funcione mesmo antes da permissão de arquivos.
  */
 class MemoryStore private constructor(private val context: Context) {
@@ -33,11 +33,11 @@ class MemoryStore private constructor(private val context: Context) {
         const val FOLDER = "OSTIE"
         const val FILE = "memoria.md"
         private const val LIMIT = 60_000
-        val SECTIONS = listOf("Sobre Henrique", "Preferências", "Pessoas", "Rotina e agenda", "Projetos", "Anotações")
+        val SECTIONS = listOf("Sobre o usuário", "Preferências", "Pessoas", "Rotina e agenda", "Projetos", "Anotações")
 
         fun template(): String = buildString {
             append("# Memória do OSTIE\n\n")
-            append("> Anotações que o OSTIE mantém sobre Henrique. Pode editar à vontade; o OSTIE relê ao conectar.\n")
+            append("> Anotações que o OSTIE mantém sobre o usuário. Pode editar à vontade; o OSTIE relê ao conectar.\n")
             SECTIONS.forEach { append("\n## ").append(it).append("\n") }
         }
     }
@@ -98,6 +98,13 @@ class MemoryStore private constructor(private val context: Context) {
         text = value
     }
 
+    /** Outros arquivos do OSTIE na mesma pasta (ex.: rotinas.json); nulo sem permissão. */
+    fun readShared(name: String): String? = if (hasFolderAccess()) read(File(folder, name)) else null
+
+    fun writeShared(name: String, content: String) {
+        if (hasFolderAccess()) try { folder.mkdirs(); File(folder, name).writeText(content) } catch (_: Exception) { }
+    }
+
     /** Acrescenta um item datado na seção (criada se não existir). */
     fun note(section: String, entry: String): JSONObject {
         val clean = entry.trim().replace("\n", " ").take(400)
@@ -120,6 +127,16 @@ class MemoryStore private constructor(private val context: Context) {
         return result("Seção \"$title\" reorganizada.")
     }
 
+    /** Troca (ou cria) a única linha da seção que começa com [prefix]; evita anotações duplicadas. */
+    fun rewriteLine(section: String, prefix: String, line: String) {
+        val title = sectionName(section)
+        val sections = parse(text)
+        val lines = sections[title].orEmpty().lines().filterNot { it.removePrefix("- ").startsWith(prefix, true) }
+            .filter { it.isNotBlank() }
+        sections[title] = (lines + "- $line").joinToString("\n")
+        save(render(sections))
+    }
+
     /** Apaga linhas que contenham o trecho pedido. */
     fun forget(fragment: String): JSONObject {
         val needle = fragment.trim()
@@ -135,13 +152,13 @@ class MemoryStore private constructor(private val context: Context) {
     fun promptBlock(): String {
         val notes = text.lines().filter { it.startsWith("## ") || it.startsWith("- ") || (it.isNotBlank() && !it.startsWith("#") && !it.startsWith(">")) }
         if (notes.none { !it.startsWith("## ") }) return ""
-        return "\n\nMemória do OSTIE (anotações que você mesmo mantém sobre Henrique; use com naturalidade, sem recitar):\n" +
+        return "\n\nMemória do OSTIE (anotações que você mesmo mantém sobre o usuário; use com naturalidade, sem recitar):\n" +
             notes.joinToString("\n").takeLast(6_000)
     }
 
     private fun result(message: String) = JSONObject().put("resultado", message)
         .put("arquivo", location).put("persistente", persistent)
-        .apply { if (!persistent) put("aviso", "Salvo só dentro do app. Para sobreviver a reinstalação, Henrique precisa permitir a pasta de memória em Ajustes.") }
+        .apply { if (!persistent) put("aviso", "Salvo só dentro do app. Para sobreviver a reinstalação, o usuário precisa permitir a pasta de memória em Ajustes.") }
 
     private fun sectionName(value: String): String {
         val wanted = value.trim().removePrefix("#").trim().ifEmpty { "Anotações" }
@@ -181,7 +198,10 @@ class MemoryStore private constructor(private val context: Context) {
         return render(sections)
     }
 
-    private fun read(file: File): String? = try { if (file.isFile) file.readText().take(LIMIT) else null } catch (_: Exception) { null }
+    private fun read(file: File): String? = try {
+        // Versões antigas usavam um nome fixo no título da seção de perfil.
+        if (file.isFile) file.readText().take(LIMIT).replace("\n## Sobre Henrique\n", "\n## Sobre o usuário\n") else null
+    } catch (_: Exception) { null }
 }
 
 /** Ação sensível (enviar mensagem, por exemplo) aguardando confirmação na tela. */
@@ -208,6 +228,6 @@ object ConfirmGate {
     fun cancel() {
         val item = pending ?: return
         pending = null
-        item.respond(JSONObject().put("resultado", "Henrique recusou na tela; nada foi feito."))
+        item.respond(JSONObject().put("resultado", "O usuário recusou na tela; nada foi feito."))
     }
 }

@@ -43,6 +43,9 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
     val context = LocalContext.current
     var clock by remember { mutableStateOf(System.currentTimeMillis()) }
     var showPanel by remember { mutableStateOf(false) }
+    // A câmera abre em tela cheia; o usuário pode reduzir para a miniatura.
+    var cameraFull by remember { mutableStateOf(true) }
+    LaunchedEffect(live.cameraSharing) { if (live.cameraSharing) cameraFull = true }
     LaunchedEffect(live.screenSharing, live.cameraSharing) {
         val started = System.currentTimeMillis()
         var screenWarned = false
@@ -85,7 +88,7 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
                 val orbSize = minOf(maxWidth, maxHeight) * 0.9f
                 VoiceOrb(live.inputLevel, live.outputLevel, live.connected, live.muted,
                     Modifier.size(orbSize))
-                if (live.cameraSharing) CameraPip(live, onCameraSwitch,
+                if (live.cameraSharing) CameraPip(live, onCameraSwitch, onExpand = { cameraFull = true }, modifier =
                     Modifier.align(Alignment.TopEnd).padding(top = 8.dp))
             }
             Text(live.status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
@@ -112,6 +115,9 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
             Spacer(Modifier.height(20.dp))
         }
     }
+    if (live.cameraSharing && cameraFull) CameraFullScreen(live, clock, onMinimize = { cameraFull = false },
+        onSwitch = onCameraSwitch, onStopCamera = onCameraToggle,
+        onEnd = { if (session) onEnd() })
     if (showPanel) {
         ModalBottomSheet(onDismissRequest = { showPanel = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -187,9 +193,9 @@ private fun StatusChip(icon: ImageVector, label: String, connected: Boolean, las
 }
 
 @Composable
-private fun CameraPip(live: LiveVoiceViewModel, onSwitch: () -> Unit, modifier: Modifier) {
-    Surface(shape = RoundedCornerShape(18.dp), color = Color.Black, shadowElevation = 8.dp,
-        modifier = modifier.size(width = 112.dp, height = 150.dp)) {
+private fun CameraPip(live: LiveVoiceViewModel, onSwitch: () -> Unit, onExpand: () -> Unit, modifier: Modifier) {
+    Surface(onClick = onExpand, shape = RoundedCornerShape(18.dp), color = Color.Black, shadowElevation = 8.dp,
+        modifier = modifier.size(width = 132.dp, height = 176.dp)) {
         Box {
             live.cameraPreview?.let { preview ->
                 Image(bitmap = preview.asImageBitmap(), contentDescription = "Imagem atual da câmera",
@@ -204,6 +210,45 @@ private fun CameraPip(live: LiveVoiceViewModel, onSwitch: () -> Unit, modifier: 
                         "Usar câmera traseira" else "Usar câmera frontal", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
+        }
+    }
+}
+
+/** Câmera ocupando a tela, com o essencial por cima: voz, trocar lente, desligar câmera e encerrar. */
+@Composable
+private fun CameraFullScreen(live: LiveVoiceViewModel, clock: Long, onMinimize: () -> Unit, onSwitch: () -> Unit,
+    onStopCamera: () -> Unit, onEnd: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        live.cameraPreview?.let { preview ->
+            Image(bitmap = preview.asImageBitmap(), contentDescription = "Imagem atual da câmera",
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        } ?: CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
+        val scrim = Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent))
+        Row(Modifier.fillMaxWidth().background(scrim).statusBarsPadding().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            VoiceOrb(live.inputLevel, live.outputLevel, live.connected, live.muted, Modifier.size(56.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(live.status, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                val age = if (live.lastCameraFrameAt == 0L) Long.MAX_VALUE else clock - live.lastCameraFrameAt
+                Text(if (!live.connected) "Aguardando conexão" else if (age > 3500) "Sem imagem recente"
+                    else "OSTIE está vendo · ${live.cameraFramesSent} imagens", color = Color.White.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.labelMedium)
+            }
+            RoundAction(OstieIcons.ArrowDown, "Reduzir câmera", onMinimize, size = 44.dp,
+                container = Color.Black.copy(alpha = 0.45f))
+        }
+        Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+            .navigationBarsPadding().padding(vertical = 20.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            RoundAction(if (live.muted) OstieIcons.MicOff else OstieIcons.Mic,
+                if (live.muted) "Ativar microfone" else "Silenciar microfone", live::toggleMute,
+                enabled = live.connected, container = if (live.muted) OstieColors.Danger else Color.White.copy(alpha = 0.2f))
+            RoundAction(OstieIcons.CameraSwitch, if (live.cameraFront) "Usar câmera traseira" else "Usar câmera frontal",
+                onSwitch, container = Color.White.copy(alpha = 0.2f))
+            RoundAction(OstieIcons.CameraOff, "Desligar câmera", onStopCamera, container = Color.White.copy(alpha = 0.2f))
+            RoundAction(OstieIcons.CallEnd, "Encerrar conversa", onEnd, container = OstieColors.Danger, size = 60.dp)
         }
     }
 }

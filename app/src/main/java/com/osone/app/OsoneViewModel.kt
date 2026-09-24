@@ -189,6 +189,16 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeAttachment() { attachment = null }
 
+    /** Resultados de rotinas executadas em segundo plano entram na conversa. */
+    fun collectRoutineResults() {
+        val results = RoutineStore.get(getApplication()).drainInbox()
+        if (results.isEmpty()) return
+        messages = messages + results.map { (title, text) -> ChatMessage("model", "Rotina · $title\n\n$text") }
+        viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
+    }
+
+    private fun chatSystem(base: String) = base + UserProfile.get(getApplication()).identity(canSave = false) + memory.promptBlock()
+
     /** Texto recebido pelo "Compartilhar" do Android, colocado no campo de mensagem. */
     var incomingText by androidx.compose.runtime.mutableStateOf<String?>(null)
         private set
@@ -236,7 +246,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 try {
                                     GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
-                                        systemPrompt = GeminiClient.DEFAULT_SYSTEM + memory.promptBlock(),
+                                        systemPrompt = chatSystem(GeminiClient.DEFAULT_SYSTEM),
                                         googleSearch = search, onPartial = stream)
                                 } catch (failure: GeminiHttpException) {
                                     // Alguns modelos ou anexos recusam a ferramenta de pesquisa: responde sem ela.
@@ -244,7 +254,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                     search = false
                                     diagnostics.record("Pesquisa Google", "${choice.label} recusou a pesquisa (HTTP 400); respondendo sem ela.")
                                     GeminiClient().streamAnswer(key, choice, snapshot, thinkingMode, part,
-                                        systemPrompt = GeminiClient.DEFAULT_SYSTEM + memory.promptBlock(), onPartial = stream)
+                                        systemPrompt = chatSystem(GeminiClient.DEFAULT_SYSTEM), onPartial = stream)
                                 }
                             }
                             lastAnswerModel = choice
@@ -264,7 +274,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                         try {
                             response = withContext(Dispatchers.IO) {
                                 ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot,
-                                    ChatCompletionClient.DEFAULT_SYSTEM + memory.promptBlock()) { partial ->
+                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM)) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
                                 }
                             }

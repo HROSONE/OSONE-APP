@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Unit, permissionError: Boolean,
-    onSettings: () -> Unit, onWriting: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
+    onSettings: () -> Unit, onWriting: () -> Unit, onRoutines: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
     readAloud: Boolean, onReadAloud: () -> Unit, liveActive: Boolean, onOpenCode: (String, String) -> Unit,
     onAnswer: (String) -> Unit) {
     var draft by remember { mutableStateOf("") }
@@ -53,6 +53,9 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
                         DropdownMenuItem(text = { Text("Aba de Escrita") },
                             leadingIcon = { Icon(OstieIcons.Document, contentDescription = null) },
                             onClick = { menuExpanded = false; onWriting() })
+                        DropdownMenuItem(text = { Text("Rotinas") },
+                            leadingIcon = { Icon(OstieIcons.Tune, contentDescription = null) },
+                            onClick = { menuExpanded = false; onRoutines() })
                         DropdownMenuItem(text = { Text(if (liveActive) "Voltar ao Live" else "Conversa Live") },
                             leadingIcon = { Icon(OstieIcons.Wave, contentDescription = null) },
                             onClick = { menuExpanded = false; onMic() })

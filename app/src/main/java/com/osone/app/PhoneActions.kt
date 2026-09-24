@@ -60,15 +60,15 @@ class PhoneActions(private val context: Context) {
         put(tool("set_timer", "Inicie um timer (cronômetro regressivo).", listOf(
             field("segundos", "INTEGER", "Duração em segundos"), field("rotulo", "STRING", "Nome do timer (opcional)")),
             listOf("segundos")))
-        put(tool("create_event", "Abra a agenda com um evento preenchido para Henrique salvar.", listOf(
+        put(tool("create_event", "Abra a agenda com um evento preenchido para o usuário salvar.", listOf(
             field("titulo", "STRING", "Título"), field("inicio", "STRING", "Data e hora no formato AAAA-MM-DD HH:MM"),
             field("duracao_minutos", "INTEGER", "Duração (padrão 60)"), field("local", "STRING", "Local (opcional)"),
             field("descricao", "STRING", "Detalhes (opcional)")), listOf("titulo", "inicio")))
         put(tool("find_contact", "Procure um contato salvo e seus números de telefone.", listOf(
             field("nome", "STRING", "Nome ou parte do nome")), listOf("nome")))
-        put(tool("dial", "Abra o discador com o número pronto; Henrique toca para ligar.", listOf(
+        put(tool("dial", "Abra o discador com o número pronto; o usuário toca para ligar.", listOf(
             field("numero", "STRING", "Número de telefone")), listOf("numero")))
-        put(tool("compose_message", "Abra SMS ou WhatsApp com a mensagem pronta; Henrique toca em enviar.", listOf(
+        put(tool("compose_message", "Abra SMS ou WhatsApp com a mensagem pronta; o usuário toca em enviar.", listOf(
             field("numero", "STRING", "Número com DDD (e código do país para WhatsApp)"),
             field("texto", "STRING", "Mensagem"), field("app", "STRING", "sms ou whatsapp")), listOf("numero", "texto")))
         put(tool("navigate", "Abra rotas no mapa até um destino.", listOf(
@@ -81,16 +81,27 @@ class PhoneActions(private val context: Context) {
         put(tool("flashlight", "Ligue ou desligue a lanterna.", listOf(field("ligada", "BOOLEAN", "true liga, false desliga")), listOf("ligada")))
         put(tool("read_notifications", "Leia as notificações atuais (exige acesso a notificações ativado pelo usuário).", listOf(
             field("app", "STRING", "Filtrar por nome do app (opcional)"), field("limite", "INTEGER", "Máximo, padrão 10"))))
-        put(tool("reply_notification", "Responda uma notificação de mensagem (WhatsApp, Telegram, SMS…) pela resposta rápida. Henrique confirma na tela antes do envio.", listOf(
+        put(tool("reply_notification", "Responda uma notificação de mensagem (WhatsApp, Telegram, SMS…) pela resposta rápida. O usuário confirma na tela antes do envio.", listOf(
             field("id", "STRING", "id retornado por read_notifications"), field("texto", "STRING", "Resposta")), listOf("id", "texto")))
+        put(tool("set_user_name", "Salve como o usuário prefere ser chamado, quando ele disser o nome ou pedir para mudar.", listOf(
+            field("nome", "STRING", "Nome ou apelido")), listOf("nome")))
+        put(tool("create_routine", "Crie uma rotina agendada: um lembrete simples ou uma tarefa que o modelo de texto executa no horário e entrega por notificação (ex.: resumo das notícias às 8h, previsão do tempo antes de sair).", listOf(
+            field("titulo", "STRING", "Nome curto"), field("instrucao", "STRING", "O que fazer ou lembrar, detalhado"),
+            field("hora", "INTEGER", "Hora 0 a 23"), field("minuto", "INTEGER", "Minuto 0 a 59"),
+            field("dias", "STRING", "todos, uteis, fim_de_semana ou lista como seg,qua,sex"),
+            field("tipo", "STRING", "lembrete (texto fixo) ou tarefa (o modelo pesquisa e escreve)")),
+            listOf("titulo", "instrucao", "hora", "minuto")))
+        put(tool("list_routines", "Liste as rotinas agendadas.", emptyList()))
+        put(tool("delete_routine", "Apague ou pause uma rotina pelo nome ou id.", listOf(
+            field("rotina", "STRING", "Nome ou id"), field("acao", "STRING", "apagar, pausar ou ativar")), listOf("rotina")))
         put(tool("memory_read", "Leia o arquivo de memória do OSTIE (Documentos/OSTIE/memoria.md) completo e atualizado.", emptyList()))
-        put(tool("memory_note", "Anote por conta própria na sua memória algo duradouro e útil sobre Henrique: fatos, preferências, pessoas, rotina, projetos ou combinados. Uma frase por anotação.", listOf(
-            field("secao", "STRING", "Sobre Henrique, Preferências, Pessoas, Rotina e agenda, Projetos ou Anotações"),
+        put(tool("memory_note", "Anote por conta própria na sua memória algo duradouro e útil sobre o usuário: fatos, preferências, pessoas, rotina, projetos ou combinados. Uma frase por anotação.", listOf(
+            field("secao", "STRING", "Sobre o usuário, Preferências, Pessoas, Rotina e agenda, Projetos ou Anotações"),
             field("texto", "STRING", "Anotação curta e clara")), listOf("secao", "texto")))
         put(tool("memory_rewrite", "Reorganize uma seção inteira da memória: junte repetições, corrija informações que mudaram e mantenha em tópicos '- '.", listOf(
             field("secao", "STRING", "Nome da seção"), field("conteudo", "STRING", "Novo conteúdo completo da seção, em tópicos")),
             listOf("secao", "conteudo")))
-        put(tool("memory_forget", "Apague da memória anotações que contenham um trecho, quando Henrique pedir para esquecer.", listOf(
+        put(tool("memory_forget", "Apague da memória anotações que contenham um trecho, quando o usuário pedir para esquecer.", listOf(
             field("trecho", "STRING", "Trecho da anotação")), listOf("trecho")))
     }
 
@@ -133,11 +144,11 @@ class PhoneActions(private val context: Context) {
                 .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, begin + minutes * 60_000L)
                 .putExtra(CalendarContract.Events.EVENT_LOCATION, args.optString("local").take(200))
                 .putExtra(CalendarContract.Events.DESCRIPTION, args.optString("descricao").take(1000)),
-                "Agenda aberta com o evento preenchido. Henrique precisa tocar em salvar.")
+                "Agenda aberta com o evento preenchido. O usuário precisa tocar em salvar.")
         }
         "find_contact" -> findContacts(args.optString("nome"))
         "dial" -> start(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone(args)))),
-            "Discador aberto com o número. Henrique toca para ligar.")
+            "Discador aberto com o número. O usuário toca para ligar.")
         "compose_message" -> {
             val number = phone(args)
             val text = args.optString("texto").take(2000)
@@ -145,9 +156,9 @@ class PhoneActions(private val context: Context) {
                 val digits = number.filter(Char::isDigit)
                 require(digits.length >= 10) { "Para WhatsApp, informe o número com código do país e DDD." }
                 start(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$digits&text=${Uri.encode(text)}")),
-                    "WhatsApp aberto com a mensagem pronta. Henrique toca em enviar.")
+                    "WhatsApp aberto com a mensagem pronta. O usuário toca em enviar.")
             } else start(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(number))).putExtra("sms_body", text),
-                "SMS aberto com a mensagem pronta. Henrique toca em enviar.")
+                "SMS aberto com a mensagem pronta. O usuário toca em enviar.")
         }
         "navigate" -> {
             val destination = args.optString("destino").trim().take(300)
@@ -187,6 +198,41 @@ class PhoneActions(private val context: Context) {
         }
         "read_notifications" -> readNotifications(args.optString("app"), args.optInt("limite", 10).coerceIn(1, 25))
         "reply_notification" -> { replyNotification(args, respond); null }
+        "set_user_name" -> {
+            val name = args.optString("nome").trim()
+            require(name.length in 1..40) { "Nome inválido." }
+            UserProfile.get(context).updateName(name)
+            memory.rewriteLine("Sobre o usuário", "Prefere ser chamado de", "Prefere ser chamado de $name")
+            JSONObject().put("resultado", "Nome salvo: $name.")
+        }
+        "create_routine" -> {
+            val routine = RoutineStore.get(context).add(args.optString("titulo"), args.optString("instrucao"),
+                args.optInt("hora", -1), args.optInt("minuto", 0), RoutineSchedule.parseDays(args.optString("dias")),
+                reminder = args.optString("tipo").startsWith("lembr", true))
+            JSONObject().put("resultado", "Rotina \"${routine.title}\" criada: ${routine.timeLabel}, ${routine.daysLabel}.")
+                .put("id", routine.id)
+        }
+        "list_routines" -> JSONObject().put("rotinas", JSONArray(RoutineStore.get(context).routines.map {
+            JSONObject().put("id", it.id).put("titulo", it.title).put("horario", it.timeLabel).put("dias", it.daysLabel)
+                .put("tipo", if (it.reminder) "lembrete" else "tarefa").put("ativa", it.enabled).put("instrucao", it.instruction.take(200))
+        }))
+        "delete_routine" -> {
+            val store = RoutineStore.get(context)
+            val found = store.matching(args.optString("rotina"))
+            when {
+                found.isEmpty() -> JSONObject().put("erro", "Nenhuma rotina com esse nome.")
+                found.size > 1 -> JSONObject().put("erro", "Mais de uma rotina combina; use o id.")
+                    .put("opcoes", JSONArray(found.map { "${it.title} (${it.id})" }))
+                else -> {
+                    val routine = found[0]
+                    when (args.optString("acao").lowercase(Locale.ROOT)) {
+                        "pausar" -> { store.setEnabled(routine.id, false); JSONObject().put("resultado", "Rotina pausada.") }
+                        "ativar" -> { store.setEnabled(routine.id, true); JSONObject().put("resultado", "Rotina ativada.") }
+                        else -> { store.remove(routine.id); JSONObject().put("resultado", "Rotina apagada.") }
+                    }
+                }
+            }
+        }
         "memory_read" -> { memory.refresh(); JSONObject().put("arquivo", memory.location)
             .put("persistente", memory.persistent).put("conteudo", memory.text.takeLast(12_000)) }
         "memory_note" -> memory.note(args.optString("secao"), args.optString("texto"))
@@ -211,7 +257,7 @@ class PhoneActions(private val context: Context) {
 
     private fun findContacts(name: String): JSONObject {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED)
-            return JSONObject().put("erro", "Sem permissão de contatos. Peça a Henrique para tocar em Contatos no painel do Live.")
+            return JSONObject().put("erro", "Sem permissão de contatos. Peça ao usuário para tocar em Contatos no painel do Live.")
         val query = name.trim()
         require(query.length >= 2) { "Informe o nome." }
         val found = JSONArray()
@@ -228,7 +274,7 @@ class PhoneActions(private val context: Context) {
 
     private fun readNotifications(filter: String, limit: Int): JSONObject {
         val listener = OstieNotificationListener.active
-            ?: return JSONObject().put("erro", "Acesso a notificações desativado. Peça a Henrique para tocar em Notificações no painel do Live.")
+            ?: return JSONObject().put("erro", "Acesso a notificações desativado. Peça ao usuário para tocar em Notificações no painel do Live.")
         val manager = context.packageManager
         notificationIds.clear()
         val items = JSONArray()
@@ -293,6 +339,7 @@ class PhoneActions(private val context: Context) {
     private companion object {
         val NAMES = setOf("set_alarm", "set_timer", "create_event", "find_contact", "dial", "compose_message", "navigate",
             "open_url", "share_text", "media_control", "flashlight", "read_notifications", "reply_notification",
-            "memory_read", "memory_note", "memory_rewrite", "memory_forget")
+            "memory_read", "memory_note", "memory_rewrite", "memory_forget", "set_user_name",
+            "create_routine", "list_routines", "delete_routine")
     }
 }

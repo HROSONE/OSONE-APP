@@ -72,11 +72,7 @@ class CodeAuthor private constructor(context: Context) {
     }
 
     /** Nome do modelo de texto configurado em Ajustes > Chat escrito. */
-    fun textModelLabel(): String = when (provider()) {
-        ChatProvider.GEMINI -> "Gemini · ${ChatModel.fromId(preferences.getString("model", null)).label}"
-        ChatProvider.GROQ -> "Groq · ${GroqModel.label(groqModel())}"
-        ChatProvider.OPENROUTER -> "OpenRouter · ${openRouterModel()}"
-    }
+    fun textModelLabel(): String = TextModel.label(app)
 
     /** Chamado pelo Live na thread principal. A resposta da ferramenta sai depois da escolha. */
     fun request(callId: String?, args: JSONObject, respond: (JSONObject) -> Unit) {
@@ -110,10 +106,10 @@ class CodeAuthor private constructor(context: Context) {
     fun dismiss() {
         val request = pending ?: return
         pending = null
-        request.respond(JSONObject().put("resultado", "Henrique cancelou o pedido de código. Não escreva o código."))
+        request.respond(JSONObject().put("resultado", "O usuário cancelou o pedido de código. Não escreva o código."))
     }
 
-    /** O Live cancelou a chamada (por exemplo, Henrique interrompeu a fala). */
+    /** O Live cancelou a chamada (por exemplo, o usuário interrompeu a fala). */
     fun cancelCall(ids: Set<String>) {
         val id = pending?.callId
         if (id != null && id in ids) pending = null
@@ -129,13 +125,13 @@ class CodeAuthor private constructor(context: Context) {
     private fun resolve(request: CodeRequest, useText: Boolean) {
         if (!useText) {
             request.respond(JSONObject().put("resultado",
-                "Henrique escolheu o modelo de voz. Agora chame write_document com o código completo deste pedido: ${request.request}"))
+                "O usuário escolheu o modelo de voz. Agora chame write_document com o código completo deste pedido: ${request.request}"))
             return
         }
         val label = textModelLabel()
         request.respond(JSONObject().put("resultado",
             "O modelo de texto $label está escrevendo o código na Aba de Escrita. Não chame write_document para este pedido; " +
-                "diga a Henrique, em uma frase, que o resultado aparece sozinho na aba em instantes."))
+                "diga ao usuário, em uma frase, que o resultado aparece sozinho na aba em instantes."))
         generate(request, label)
     }
 
@@ -146,7 +142,7 @@ class CodeAuthor private constructor(context: Context) {
         writingWith = label
         val current = writing.content
         val prompt = buildString {
-            append("Pedido de Henrique: ").append(request.request)
+            append("Pedido do usuário: ").append(request.request)
             if (request.format.isNotBlank()) append("\nFormato desejado: ").append(request.format)
             if (request.modify && current.isNotBlank())
                 append("\n\nAltere o documento atual abaixo e devolva a versão completa revisada:\n\n").append(current)
@@ -155,7 +151,7 @@ class CodeAuthor private constructor(context: Context) {
         job = scope.launch {
             try {
                 val answer = withContext(Dispatchers.IO) {
-                    ask(prompt) { partial -> main.post { if (writingWith == label) draft = partial } }
+                    TextModel.ask(app, prompt, SYSTEM) { partial -> main.post { if (writingWith == label) draft = partial } }
                 }
                 if (!isActive) return@launch
                 val code = DocumentPreview.stripFence(DocumentPreview.codeBlock(answer)?.second ?: answer)
@@ -177,34 +173,4 @@ class CodeAuthor private constructor(context: Context) {
             }
         }
     }
-
-    /** Mesma escolha de provedor e modelo do chat escrito, com fallback Gemini se ligado. */
-    private fun ask(prompt: String, onPartial: (String) -> Unit): String {
-        val provider = provider()
-        val key = SecureKeyStore(app, when (provider) {
-            ChatProvider.GEMINI -> "key"
-            ChatProvider.OPENROUTER -> "key_openrouter"
-            ChatProvider.GROQ -> "key_groq"
-        }).read() ?: throw IllegalStateException("Salve a chave ${provider.label} em Ajustes para o modelo de texto escrever código.")
-        val history = listOf(ChatMessage("user", prompt))
-        if (provider != ChatProvider.GEMINI) {
-            val model = if (provider == ChatProvider.GROQ) groqModel() else openRouterModel()
-            return ChatCompletionClient().streamAnswer(provider, key, model, history, SYSTEM, 180_000, onPartial)
-        }
-        val selected = ChatModel.fromId(preferences.getString("model", null))
-        val mode = ThinkingMode.fromValue(preferences.getString("thinking_mode", null))
-        val choices = ChatModel.candidates(selected, preferences.getBoolean("chat_fallback", true))
-        for ((index, choice) in choices.withIndex()) {
-            try {
-                return GeminiClient().streamAnswer(key, choice, history, mode, null, SYSTEM, 180_000, onPartial = onPartial)
-            } catch (failure: GeminiHttpException) {
-                if (!failure.allowsFallback || index == choices.lastIndex) throw failure
-            }
-        }
-        throw IllegalStateException("Nenhum modelo Gemini respondeu.")
-    }
-
-    private fun provider() = ChatProvider.fromValue(preferences.getString("chat_provider", null))
-    private fun groqModel() = preferences.getString("groq_model", null) ?: GroqModel.GPT_OSS_20B.id
-    private fun openRouterModel() = preferences.getString("openrouter_model", "openrouter/free") ?: "openrouter/free"
 }

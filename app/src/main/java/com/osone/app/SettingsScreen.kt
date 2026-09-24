@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -23,8 +24,31 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
             .padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionCard("Aparência", OstieIcons.Settings) {
+            SectionCard("Perfil e aparência", OstieIcons.Settings) {
+                val context = LocalContext.current
+                val profile = remember { UserProfile.get(context) }
+                var name by remember { mutableStateOf(profile.name) }
+                OutlinedTextField(value = name, onValueChange = { name = it.take(40) }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+                    label = { Text("Como o OSTIE deve te chamar") },
+                    placeholder = { Text("Vazio: ele pergunta na conversa") },
+                    trailingIcon = { if (name.trim() != profile.name) TextButton(onClick = { profile.updateName(name) }) { Text("Salvar") } })
                 SettingSwitch("Modo noturno", darkMode, onDarkMode)
+                val notificationsOn = remember(profile.name, darkMode) {
+                    context.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Notificações do app", style = MaterialTheme.typography.bodyLarge)
+                        Hint(if (notificationsOn) "Ativadas: chamada Live, rotinas e atualizações."
+                            else "Desativadas: rotinas e avisos de atualização não aparecem.",
+                            if (notificationsOn) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+                    }) { Text(if (notificationsOn) "Gerenciar" else "Ativar") }
+                }
             }
             SectionCard("Chaves de API", OstieIcons.Shield) {
                 Hint("Cada chave fica criptografada no aparelho e só vai ao respectivo serviço. Gemini é obrigatória para o Live.")

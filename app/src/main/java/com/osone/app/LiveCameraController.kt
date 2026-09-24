@@ -3,7 +3,10 @@ package com.osone.app
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -14,6 +17,8 @@ import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.view.OrientationEventListener
+import java.io.ByteArrayOutputStream
 import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -31,6 +36,35 @@ class LiveCameraController(
     private var session: CameraCaptureSession? = null
     private var reader: ImageReader? = null
     private var request: CaptureRequest? = null
+    private var sensorOrientation = 0
+    /** Orientação física do aparelho (graus), mesmo com a tela do app travada em retrato. */
+    @Volatile private var deviceOrientation = 0
+    private val orientation = object : OrientationEventListener(context) {
+        override fun onOrientationChanged(degrees: Int) {
+            if (degrees != ORIENTATION_UNKNOWN) deviceOrientation = (degrees + 45) / 90 * 90 % 360
+        }
+    }
+
+    /** Graus (sentido horário) para deixar o quadro em pé, conforme a documentação do Camera2. */
+    private fun uprightRotation(): Int {
+        val device = if (front) -deviceOrientation else deviceOrientation
+        return (sensorOrientation + device + 360) % 360
+    }
+
+    /** Gira e reduz o JPEG no próprio app: vários aparelhos ignoram JPEG_ORIENTATION ou só gravam EXIF. */
+    private fun upright(jpeg: ByteArray): ByteArray {
+        val source = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return jpeg
+        val rotation = uprightRotation()
+        val scale = minOf(1f, 1024f / maxOf(source.width, source.height))
+        if (rotation == 0 && scale == 1f) { source.recycle(); return jpeg }
+        val matrix = Matrix().apply { postScale(scale, scale); postRotate(rotation.toFloat()) }
+        val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        val out = ByteArrayOutputStream()
+        rotated.compress(Bitmap.CompressFormat.JPEG, 70, out)
+        if (rotated !== source) rotated.recycle()
+        source.recycle()
+        return out.toByteArray()
+    }
 
     fun start() {
         try {
@@ -43,6 +77,8 @@ class LiveCameraController(
             manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == wanted
         } ?: error(if (front) "Câmera frontal indisponível." else "Câmera traseira indisponível.")
         val characteristics = manager.getCameraCharacteristics(id)
+        sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        if (orientation.canDetectOrientation()) orientation.enable()
         val sizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             ?.getOutputSizes(ImageFormat.JPEG)?.toList().orEmpty()
         val size = sizes.filter { it.width <= 1280 && it.height <= 720 }
@@ -59,7 +95,7 @@ class LiveCameraController(
                     val data = image.planes[0].buffer
                     val bytes = ByteArray(data.remaining())
                     data.get(bytes)
-                    if (bytes.isNotEmpty()) onFrame(bytes, System.currentTimeMillis())
+                    if (bytes.isNotEmpty()) onFrame(upright(bytes), System.currentTimeMillis())
                 }
             } catch (failure: Exception) { fail("Falha no quadro da câmera (${failure.javaClass.simpleName}).") }
             finally { image.close() }
@@ -72,8 +108,8 @@ class LiveCameraController(
                         val photo = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
                         photo.addTarget(output.surface)
                         photo.set(CaptureRequest.JPEG_QUALITY, 65.toByte())
-                        photo.set(CaptureRequest.JPEG_ORIENTATION,
-                            characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0)
+                        // A rotação é aplicada em upright(); o sensor entrega a imagem sem girar.
+                        photo.set(CaptureRequest.JPEG_ORIENTATION, 0)
                         request = photo.build()
                         @Suppress("DEPRECATION")
                         camera.createCaptureSession(listOf(output.surface), object : CameraCaptureSession.StateCallback() {
@@ -121,6 +157,7 @@ class LiveCameraController(
 
     fun stop() {
         if (!closed.compareAndSet(false, true)) return
+        orientation.disable()
         handler.post {
             try { session?.stopRepeating() } catch (_: Exception) {}
             session?.close(); session = null

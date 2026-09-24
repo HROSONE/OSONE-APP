@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var speech: TextToSpeech? = null
     private var showLive by mutableStateOf(false)
     private var showWriting by mutableStateOf(false)
+    private var showRoutines by mutableStateOf(false)
+    private val routines by lazy { RoutineStore.get(application) }
     private var permissionError by mutableStateOf(false)
     private var darkMode by mutableStateOf(false)
     private var bubblePermission by mutableStateOf(false)
@@ -104,9 +106,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             ACTION_LIVE, Intent.ACTION_ASSIST -> { showWriting = false; requestLive() }
-            ACTION_WRITING -> { showLive = false; showWriting = true }
+            ACTION_WRITING -> { showLive = false; showRoutines = false; showWriting = true }
             Intent.ACTION_SEND -> {
-                showLive = false; showWriting = false
+                showLive = false; showWriting = false; showRoutines = false
                 intent.getStringExtra(Intent.EXTRA_TEXT)?.let(viewModel::receiveShared)
                 @Suppress("DEPRECATION")
                 val stream = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -144,13 +146,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         if (!installRequested) lifecycleScope.launch { updater.checkOnLaunch() }
         if (savedInstanceState == null) handleIntent(intent)
+        RoutineScheduler.scheduleAll(this)
         setContent {
             var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
             var showDiagnostics by remember { mutableStateOf(false) }
             // Código pedido por voz aparece sendo escrito na Aba de Escrita, mesmo sem perguntar.
             LaunchedEffect(codeAuthor.writingWith) {
-                if (codeAuthor.writingWith != null) { showWriting = true; showLive = false; showSettings = false }
+                if (codeAuthor.writingWith != null) { showWriting = true; showLive = false; showSettings = false; showRoutines = false }
             }
             LaunchedEffect(installRequested) {
                 if (installRequested) {
@@ -201,6 +204,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }, onBack = { showSettings = false },
                         onPickUpdate = { pickUpdateApk.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
                         diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true })
+                    else if (showRoutines) RoutinesScreen(routines, diagnostics,
+                        onDiagnostics = { showDiagnostics = true }, onBack = { showRoutines = false },
+                        onRunNow = { RoutineScheduler.runNow(this, it) },
+                        onNeedNotifications = {
+                            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this,
+                                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        })
                     else if (showWriting) WritingScreen(writing, live, codeAuthor, diagnostics,
                         onDiagnostics = { showDiagnostics = true },
                         onBack = { showWriting = false },
@@ -214,7 +225,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 openLive()
                             else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
                         }, permissionError = permissionError, onSettings = { showSettings = true },
-                        onWriting = { showWriting = true }, diagnostics = diagnostics, liveActive = live.active != null,
+                        onWriting = { showWriting = true }, onRoutines = { showRoutines = true },
+                        diagnostics = diagnostics, liveActive = live.active != null,
                         onOpenCode = { code, language ->
                             writing.publish(JSONObject().put("titulo", "Código do chat")
                                 .put("conteudo", code).put("formato", language))
@@ -243,7 +255,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             onChoose = { useText, remember ->
                                 codeAuthor.choose(useText, remember)
                                 // O resultado aparece na Aba de Escrita; a voz continua ativa.
-                                showWriting = true; showLive = false; showSettings = false
+                                showWriting = true; showLive = false; showSettings = false; showRoutines = false
                             }, onDismiss = codeAuthor::dismiss)
                     }
                 }
@@ -273,6 +285,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         notificationsAccess = OstieNotificationListener.enabled(this)
         contactsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
         memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
+        RoutineStore.get(this).restoreFromFolder()
+        viewModel.collectRoutineResults()
         updater.resumeAfterPermission()
         if (overlayRequested && bubblePermission && live.active != null)
             LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)

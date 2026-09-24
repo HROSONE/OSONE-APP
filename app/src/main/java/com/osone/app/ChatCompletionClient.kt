@@ -61,6 +61,6 @@ class ChatCompletionClient {
     }
 
     companion object {
-        const val DEFAULT_SYSTEM = "Você é OSTIE, assistente pessoal de Henrique. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."
+        const val DEFAULT_SYSTEM = "Você é OSTIE, assistente pessoal do usuário. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."
     }
 }
