@@ -197,6 +197,17 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
     }
 
+    /** Conversa de voz do Live (transcrita) entra no histórico, para o chat saber o que foi falado. */
+    fun collectLiveTranscript() {
+        val turns = LiveTranscriptInbox.drain(getApplication())
+        if (turns.isEmpty()) return
+        messages = (messages + turns.flatMap { (user, model) ->
+            listOfNotNull(user.takeIf { it.isNotBlank() }?.let { ChatMessage("user", "Por voz: $it") },
+                model.takeIf { it.isNotBlank() }?.let { ChatMessage("model", it) })
+        }).takeLast(100)
+        viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
+    }
+
     private fun chatSystem(base: String) = base + UserProfile.get(getApplication()).identity(canSave = false) + memory.promptBlock()
 
     /** Texto recebido pelo "Compartilhar" do Android, colocado no campo de mensagem. */

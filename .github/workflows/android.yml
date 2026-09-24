@@ -1,8 +1,16 @@
 name: Android
+# Economia de minutos (repositório privado): uma execução por mudança, sem rodar para documentação.
 on:
   push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**']
   workflow_dispatch:
+concurrency:
+  group: android-${{ github.ref }}
+  # Em PR, um push novo cancela a execução anterior; na main nunca, para não cortar uma publicação.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,9 +33,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Testar e compilar APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Testar
+        run: gradle :app:testDebugUnitTest --no-daemon
+      - name: Compilar APK de teste (PR)
+        if: github.event_name == 'pull_request'
+        run: gradle :app:assembleDebug --no-daemon
       - name: Compilar APK com assinatura permanente
+        if: github.event_name != 'pull_request'
         env:
           OSTIE_SIGNING_KEYSTORE_BASE64: ${{ secrets.OSTIE_SIGNING_KEYSTORE_BASE64 }}
           OSTIE_SIGNING_PASSWORD: ${{ secrets.OSTIE_SIGNING_PASSWORD }}
@@ -43,11 +55,13 @@ jobs:
           chmod 600 "$OSTIE_SIGNING_KEYSTORE_FILE"
           gradle :app:assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: ostie-release-assinado
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
         with:
           name: ostie-debug-assinatura-temporaria
           path: app/build/outputs/apk/debug/*.apk

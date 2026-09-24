@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             LaunchedEffect(codeAuthor.writingWith) {
                 if (codeAuthor.writingWith != null) { showWriting = true; showLive = false; showSettings = false; showRoutines = false }
             }
+            LaunchedEffect(LiveTranscriptInbox.revision) { viewModel.collectLiveTranscript() }
             LaunchedEffect(installRequested) {
                 if (installRequested) {
                     installRequested = false
@@ -287,6 +288,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
         RoutineStore.get(this).restoreFromFolder()
         viewModel.collectRoutineResults()
+        viewModel.collectLiveTranscript()
         updater.resumeAfterPermission()
         if (overlayRequested && bubblePermission && live.active != null)
             LiveSessionService.command(this, LiveSessionService.OVERLAY_ON)
