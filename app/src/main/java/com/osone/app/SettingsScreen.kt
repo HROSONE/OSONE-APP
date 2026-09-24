@@ -15,7 +15,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuthor: CodeAuthor, updater: AppUpdater,
     memory: MemoryStore, darkMode: Boolean, onMemoryFolder: () -> Unit, onDarkMode: (Boolean) -> Unit, onBack: () -> Unit,
-    onPickUpdate: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit) {
+    onPickUpdate: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
+    onWakeWord: (Boolean) -> Unit = {}, overlayAllowed: Boolean = true, onOverlay: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var confirmClear by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -94,6 +95,17 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     "Evita que o OSTIE se interrompa pelo próprio alto-falante. Com fones, não é aplicada.")
                 CodeAuthorPicker(codeAuthor)
                 Hint("O modelo de texto é o escolhido em Chat escrito acima.")
+            }
+            SectionCard("Escuta ativa", OstieIcons.Mic) {
+                SettingSwitch("Ouvir \"Ei, Ostie\"", WakeWord.on, onWakeWord,
+                    "De qualquer tela, diga \"Ei, Ostie\" e o Live abre. O reconhecimento roda no celular e nenhum áudio sai dele até o Live abrir.")
+                if (WakeWord.downloading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                WakeWord.status?.let { Hint(it) }
+                if (WakeWord.on && !overlayAllowed) {
+                    Hint("Sem \"Mostrar sobre outros apps\", o OSTIE só avisa por notificação quando ouve você; com a permissão, o Live abre direto.")
+                    OutlinedButton(onClick = onOverlay) { Text("Permitir abrir sobre outros apps") }
+                }
+                if (WakeWord.on) Hint("Gasta um pouco mais de bateria e o Android mostra o ícone do microfone enquanto escuta. Depois de reiniciar o celular, abra o app uma vez para voltar a escutar.")
             }
             SectionCard("Atualizações", OstieIcons.ArrowDown) {
                 var custom by remember { mutableStateOf(updater.feedUrl.isNotBlank()) }
