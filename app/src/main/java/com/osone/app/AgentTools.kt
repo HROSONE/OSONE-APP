@@ -21,6 +21,7 @@ class AgentTools(private val context: Context, private val background: Boolean) 
     private val phone = PhoneActions(context)
     private val local = AndroidLocalTools(context)
     private val main = Handler(Looper.getMainLooper())
+    private val knowledge = KnowledgeBase.get(context)
     /** Botões sugeridos por uma rotina (rótulo e tela que abrem), no máximo [MAX_SUGGESTIONS]. */
     val suggestions = ArrayList<Pair<String, Intent>>()
 
@@ -33,12 +34,14 @@ class AgentTools(private val context: Context, private val background: Boolean) 
             .takeIf { it.optString("name") in (if (background) BACKGROUND_LOCAL else CHAT_LOCAL) }?.let { list.put(it) }
         if (background) list.put(suggestDeclaration())
         if (webSearch) list.put(WebSearch.declaration())
+        if (knowledge.active && knowledge.sources.isNotEmpty()) list.put(knowledge.toolDeclaration())
         return list
     }
 
     /** Bloqueante: chame fora da thread principal. As ações rodam na principal, como no Live. */
     fun run(name: String, args: JSONObject): JSONObject {
         if (name == WebSearch.NAME) return await(90) { respond -> WebSearch.run(context, args, respond) }
+        if (name == KnowledgeBase.TOOL) return knowledge.search(args)
         if (background) {
             if (name == SUGGEST) return suggest(args)
             if (name !in BACKGROUND && name !in BACKGROUND_LOCAL) return JSONObject().put("erro", "Ação indisponível numa rotina.")

@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuthor: CodeAuthor, updater: AppUpdater,
     memory: MemoryStore, darkMode: Boolean, onMemoryFolder: () -> Unit, onDarkMode: (Boolean) -> Unit, onBack: () -> Unit,
     onPickUpdate: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
-    onWakeWord: (Boolean) -> Unit = {}, overlayAllowed: Boolean = true, onOverlay: () -> Unit = {}) {
+    onWakeWord: (Boolean) -> Unit = {}, overlayAllowed: Boolean = true, onOverlay: () -> Unit = {},
+    onKnowledgeFile: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var confirmClear by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -173,6 +174,8 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     }
                 }
             }
+            val knowledgeContext = LocalContext.current
+            KnowledgeSection(remember { KnowledgeBase.get(knowledgeContext) }, onKnowledgeFile)
             SectionCard("Dados", OstieIcons.Delete) {
                 OutlinedButton(onClick = { confirmClear = true }, colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.error)) { Text("Apagar conversa deste aparelho") }

@@ -99,6 +99,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
 
+    /** Arquivo para a base de conhecimento (PDF, MD, TXT, DOCX). */
+    private val pickKnowledge = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) KnowledgeBase.get(this).addFile(uri)
+    }
+
     private val wakeMicPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) WakeWord.enable(this) else WakeWord.status = "Sem o microfone, a escuta ativa não funciona."
     }
@@ -229,6 +234,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         onPickUpdate = { pickUpdateApk.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
                         diagnostics = diagnostics, onDiagnostics = { showDiagnostics = true },
                         onWakeWord = ::setWakeWord, overlayAllowed = bubblePermission,
+                        onKnowledgeFile = { pickKnowledge.launch(arrayOf("application/pdf", "text/*",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream")) },
                         onOverlay = { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) })
                     else if (showRoutines) RoutinesScreen(routines, diagnostics,
                         onDiagnostics = { showDiagnostics = true }, onBack = { showRoutines = false },
