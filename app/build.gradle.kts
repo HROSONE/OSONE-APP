@@ -40,6 +40,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    // Testes de tela rodam na JVM com Robolectric (sem emulador), dentro de testDebugUnitTest.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
 dependencies {
@@ -58,5 +60,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // org.json real nos testes JVM (o android.jar só traz stubs).
     testImplementation("org.json:json:20250517")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:4.17")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
