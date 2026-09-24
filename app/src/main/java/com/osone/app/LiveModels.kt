@@ -18,11 +18,17 @@ data class LiveModel(val id: String, val label: String) {
             known.firstOrNull { it.id == value } ?: value?.takeIf { it.isNotBlank() }?.let { LiveModel(it, it) }
                 ?: known.firstOrNull() ?: DEFAULTS.first()
 
-        /** Escolhido primeiro; com fallback, mais dois da lista (prioriza áudio nativo). */
-        fun candidates(selected: LiveModel, fallback: Boolean, known: List<LiveModel>): List<LiveModel> =
-            if (!fallback) listOf(selected)
-            else listOf(selected) + known.filterNot { it.id == selected.id }
-                .sortedByDescending { it.id.contains("native-audio") || it.id.contains("live") }.take(2)
+        /**
+         * Escolhido primeiro; com fallback, um modelo de áudio nativo (o mais compatível) e outro Live,
+         * de famílias diferentes. Variantes "thinking" só entram se escolhidas.
+         */
+        fun candidates(selected: LiveModel, fallback: Boolean, known: List<LiveModel>): List<LiveModel> {
+            if (!fallback) return listOf(selected)
+            val others = known.filterNot { it.id == selected.id || it.id.contains("thinking") }.sortedByDescending { it.id }
+            val native = others.firstOrNull { it.id.contains("native-audio") }
+            val live = others.firstOrNull { !it.id.contains("native-audio") }
+            return listOfNotNull(selected, native, live)
+        }
 
         /** Resposta de v1beta/models: só modelos com bidiGenerateContent (a API Live). */
         fun parseCatalog(json: String): List<LiveModel> {
@@ -34,10 +40,10 @@ data class LiveModel(val id: String, val label: String) {
                 val id = model.optString("name").removePrefix("models/")
                 if (id.isBlank()) null else LiveModel(id, model.optString("displayName").ifBlank { id })
             }.distinctBy { it.id }
-                // Traduções/transcrição Live não conversam; áudio nativo e "live" primeiro, versões novas antes.
-                .filterNot { it.id.contains("translate") || it.id.contains("transcribe") }
-                .sortedWith(compareByDescending<LiveModel> { it.id.contains("live") || it.id.contains("native-audio") }
-                    .thenByDescending { it.id })
+                // Só modelos de conversa por voz: tradução, transcrição e outros streams (ex.: robótica) ficam fora.
+                .filter { (it.id.contains("live") || it.id.contains("native-audio")) &&
+                    !it.id.contains("translate") && !it.id.contains("transcribe") }
+                .sortedByDescending { it.id }
         }
 
         fun toJson(models: List<LiveModel>): String = JSONArray(models.map {
