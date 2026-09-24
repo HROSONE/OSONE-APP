@@ -208,8 +208,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
     }
 
-    private fun chatSystem(base: String, canSave: Boolean = false) =
-        base + UserProfile.get(getApplication()).identity(canSave) + memory.promptBlock()
+    private fun chatSystem(base: String, canSave: Boolean = false, query: String = "") =
+        base + UserProfile.get(getApplication()).identity(canSave) + memory.promptBlock() +
+            KnowledgeBase.get(getApplication()).let { it.promptBlock() + it.relevant(query) }
 
     private val agentTools by lazy { AgentTools(getApplication(), background = false) }
 
@@ -269,7 +270,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                     main.post { if (busy && activeModel == choice) streamingText = partial }
                                 }
                                 TextModel.gemini(key, choice, snapshot, thinkingMode, part,
-                                    chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null),
+                                    chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null, prompt),
                                     45_000, googleSearch, tools, onDowngrade = { diagnostics.record("Chat Gemini", it) },
                                     onPartial = stream)
                             }
@@ -290,7 +291,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                         try {
                             response = withContext(Dispatchers.IO) {
                                 ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot,
-                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM)) { partial ->
+                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM, query = prompt)) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
                                 }
                             }

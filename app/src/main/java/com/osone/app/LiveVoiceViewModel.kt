@@ -32,6 +32,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
     private val codeAuthor = CodeAuthor.get(application)
     private val phoneActions = PhoneActions(application)
     private val memory = MemoryStore.get(application)
+    private val knowledge = KnowledgeBase.get(application)
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val endpoint = "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -356,7 +357,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                         .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject()
                             .put("text", "Você é OSTIE, assistente pessoal no Android. Converse naturalmente em português brasileiro. Quando o usuário pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando o usuário pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando o usuário liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou. Quando a pergunta depender de informação atual ou que você não sabe com certeza (notícias, preços, placares, clima, horários, lançamentos), use a Pesquisa Google (ou a ferramenta web_search, quando for ela a disponível) e diga de onde veio a informação." + AGENT_GUIDE + UserProfile.get(getApplication()).identity(canSave = localToolsAvailable) +
-                                memory.promptBlock())))))
+                                memory.promptBlock() + knowledge.promptBlock())))))
                     sentHandle = false
                     if (extrasAvailable) {
                         val resume = JSONObject()
@@ -374,6 +375,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             }
                             // Sem a pesquisa embutida (ex.: cota do Live 3.x), pesquisa pelo modelo de texto.
                             if (!searchAvailable && preferences.getBoolean("google_search", true)) list.put(WebSearch.declaration())
+                            if (knowledge.active && knowledge.sources.isNotEmpty()) list.put(knowledge.toolDeclaration())
                         }))
                     if (searchAvailable) tools.put(JSONObject().put("googleSearch", JSONObject()))
                     if (tools.length() > 0) setup.getJSONObject("setup").put("tools", tools)
@@ -513,6 +515,10 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             if (phoneActions.handles(name)) {
                 // Ações diretas; as sensíveis só respondem depois da confirmação na tela.
                 phoneActions.execute(name, args) { answer -> sendToolResponse(ws, name, id, answer) }
+                continue
+            }
+            if (name == KnowledgeBase.TOOL) {
+                sendToolResponse(ws, name, id, knowledge.search(args))
                 continue
             }
             if (name == WebSearch.NAME) {
