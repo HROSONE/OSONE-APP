@@ -6,6 +6,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
+- Na branch, aguardando janela pública: gestos no controle do celular (screen_gesture): pinça para ampliar/reduzir, toque duplo, segurar num ponto e arrastar segurando; inspect_screen informa o tamanho da tela.
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
 Ideias maiores para depois:

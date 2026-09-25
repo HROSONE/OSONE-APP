@@ -47,7 +47,9 @@ class OsoneAccessibilityService : AccessibilityService() {
                 .put("rolavel", node.isScrollable)
                 .put("centro", JSONArray().put(bounds.centerX()).put(bounds.centerY())))
         }
+        val metrics = resources.displayMetrics
         return JSONObject().put("app", root.packageName?.toString() ?: "desconhecido")
+            .put("tela", JSONArray().put(metrics.widthPixels).put(metrics.heightPixels))
             .put("controles", nodes).put("limite", nodes.length() == 120)
             .put("atualizado_ha_ms", if (lastWindowUpdate > 0) SystemClock.uptimeMillis() - lastWindowUpdate else -1)
     }
@@ -128,6 +130,40 @@ class OsoneAccessibilityService : AccessibilityService() {
         lastAction = SystemClock.uptimeMillis()
         val accepted = dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
         return JSONObject().put("gesto_aceito", accepted).put("concluido", "Ainda não confirmado; inspecione a tela.")
+    }
+
+    /** Gestos com vários dedos ou tempos: toque duplo, segurar, arrastar segurando, pinça (ampliar/reduzir). */
+    fun multiGesture(type: String, x: Int?, y: Int?, endX: Int?, endY: Int?, amount: Int?): JSONObject {
+        val metrics = resources.displayMetrics
+        val plan = try {
+            GesturePlan.build(type, x, y, endX, endY, amount, metrics.widthPixels, metrics.heightPixels)
+        } catch (invalid: IllegalArgumentException) { return error(invalid.message ?: "Gesto inválido.") }
+        lastAction = SystemClock.uptimeMillis()
+        val accepted = if (plan.hold > 0) dragWithHold(plan.hold, plan.strokes.single())
+            else dispatchGesture(GestureDescription.Builder().apply { plan.strokes.forEach { addStroke(stroke(it)) } }.build(),
+                null, null)
+        return JSONObject().put("gesto_aceito", accepted).put("concluido", "Ainda não confirmado; inspecione a tela.")
+    }
+
+    private fun stroke(spec: StrokeSpec) = GestureDescription.StrokeDescription(Path().apply {
+        moveTo(spec.fromX.toFloat(), spec.fromY.toFloat())
+        if (!spec.still) lineTo(spec.toX.toFloat(), spec.toY.toFloat())
+    }, spec.start, spec.duration)
+
+    /** Segura parado e só então arrasta: launchers e listas exigem o toque longo antes de mover o item. */
+    private fun dragWithHold(hold: Long, move: StrokeSpec): Boolean {
+        val press = GestureDescription.StrokeDescription(Path().apply { moveTo(move.fromX.toFloat(), move.fromY.toFloat()) },
+            0, hold, true)
+        return dispatchGesture(GestureDescription.Builder().addStroke(press).build(),
+            object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    val path = Path().apply {
+                        moveTo(move.fromX.toFloat(), move.fromY.toFloat()); lineTo(move.toX.toFloat(), move.toY.toFloat())
+                    }
+                    dispatchGesture(GestureDescription.Builder()
+                        .addStroke(press.continueStroke(path, 0, move.duration, false)).build(), null, null)
+                }
+            }, null)
     }
 
     private fun find(label: String): AccessibilityNodeInfo? {
