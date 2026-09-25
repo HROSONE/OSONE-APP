@@ -31,4 +31,15 @@ class WakePhraseTest {
         val phrases = JSONArray(WakePhrase.grammar)
         assertEquals("[unk]", phrases.getString(phrases.length() - 1))
     }
+
+    @Test fun findsTheModelFolderInOldAndNewZips() {
+        // Formato antigo (vosk-model-small-pt-0.3): final.mdl na pasta do modelo.
+        assertEquals("vosk-model-small-pt-0.3/", WakePhrase.modelRoot(listOf("vosk-model-small-pt-0.3/",
+            "vosk-model-small-pt-0.3/final.mdl", "vosk-model-small-pt-0.3/ivector/final.ie")))
+        // Formato novo: am/final.mdl.
+        assertEquals("modelo/", WakePhrase.modelRoot(listOf("modelo/conf/model.conf", "modelo/am/final.mdl", "modelo/ivector/final.ie")))
+        // Zip sem pasta raiz.
+        assertEquals("", WakePhrase.modelRoot(listOf("final.mdl", "mfcc.conf")))
+        assertEquals(null, WakePhrase.modelRoot(listOf("leia-me.txt")))
+    }
 }

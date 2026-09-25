@@ -26,7 +26,6 @@ import androidx.core.content.ContextCompat
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.zip.ZipInputStream
 
 /**
  * Escuta ativa: um reconhecedor offline (Vosk, modelo pequeno em português, baixado uma vez) ouve só
@@ -51,8 +50,9 @@ object WakeWord {
 
     fun modelDir(context: Context) = File(context.filesDir, "vosk-pt")
 
-    fun modelReady(context: Context) = File(modelDir(context), "am/final.mdl").isFile &&
-        File(modelDir(context), "conf/model.conf").isFile
+    /** Formato novo (am/final.mdl) ou antigo (final.mdl na raiz, como o modelo pequeno de português). */
+    fun modelReady(context: Context) = File(modelDir(context), "am/final.mdl").isFile ||
+        File(modelDir(context), "final.mdl").isFile
 
     private fun canListen(context: Context) = ContextCompat.checkSelfPermission(context,
         Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -111,24 +111,32 @@ object WakeWord {
         val zip = File(context.cacheDir, "vosk-pt.zip")
         val connection = UpdateFeed.openHttps(MODEL_URL)
         try {
-            connection.inputStream.use { input -> zip.outputStream().use { input.copyTo(it) } }
+            val expected = connection.contentLengthLong
+            val received = connection.inputStream.use { input -> zip.outputStream().use { input.copyTo(it) } }
+            // Rede que cai no meio deixa um zip cortado: melhor avisar do que extrair pela metade.
+            require(expected <= 0 || received == expected) { "Download interrompido (${received / 1_048_576} de ${expected / 1_048_576} MB)." }
         } finally { connection.disconnect() }
         val target = modelDir(context)
         val staging = File(context.filesDir, "vosk-pt.tmp").apply { deleteRecursively(); mkdirs() }
         val root = staging.canonicalPath + File.separator
-        ZipInputStream(zip.inputStream().buffered()).use { entries ->
-            while (true) {
-                val entry = entries.nextEntry ?: break
-                val relative = entry.name.substringAfter('/', "")
-                if (relative.isEmpty()) continue
+        java.util.zip.ZipFile(zip).use { archive ->
+            val entries = archive.entries().toList()
+            // O modelo pode estar numa pasta do zip ou na raiz, no formato novo ou no antigo.
+            val prefix = WakePhrase.modelRoot(entries.map { it.name })
+                ?: throw IllegalStateException("O arquivo baixado não tem o modelo de voz.")
+            entries.forEach { entry ->
+                val name = entry.name.replace('\\', '/').trimStart('/')
+                if (!name.startsWith(prefix)) return@forEach
+                val relative = name.removePrefix(prefix)
+                if (relative.isEmpty()) return@forEach
                 val file = File(staging, relative)
                 require(file.canonicalPath.startsWith(root)) { "Arquivo inválido no modelo." }
                 if (entry.isDirectory) file.mkdirs()
-                else { file.parentFile?.mkdirs(); file.outputStream().use { entries.copyTo(it) } }
+                else { file.parentFile?.mkdirs(); archive.getInputStream(entry).use { input -> file.outputStream().use { input.copyTo(it) } } }
             }
         }
         zip.delete()
-        require(File(staging, "am/final.mdl").isFile) { "Modelo incompleto." }
+        require(File(staging, "am/final.mdl").isFile || File(staging, "final.mdl").isFile) { "Modelo incompleto." }
         target.deleteRecursively()
         require(staging.renameTo(target)) { "Não consegui salvar o modelo." }
     }
