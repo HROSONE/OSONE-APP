@@ -1,5 +1,6 @@
 package com.osone.app
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -124,18 +125,26 @@ fun RoundAction(icon: ImageVector, description: String, onClick: () -> Unit, act
 }
 
 @Composable
-fun SectionCard(title: String, icon: ImageVector? = null, content: @Composable ColumnScope.() -> Unit) {
+fun SectionCard(title: String, icon: ImageVector? = null, collapsible: Boolean = false, initiallyOpen: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit) {
+    // Recolhível (Ajustes): toque no título abre ou fecha; o estado sobrevive a girar a tela.
+    var open by androidx.compose.runtime.saveable.rememberSaveable(title) { mutableStateOf(!collapsible || initiallyOpen) }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,
         tonalElevation = 0.dp, shadowElevation = 0.dp, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = if (collapsible) Modifier.fillMaxWidth().clickable(onClickLabel = if (open) "Recolher $title" else "Abrir $title") { open = !open }
+                    else Modifier) {
                 icon?.let {
                     Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
                 }
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f))
+                if (collapsible) Icon(if (open) OstieIcons.ArrowDown else OstieIcons.ChevronRight,
+                    contentDescription = if (open) "Aberta" else "Recolhida", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            content()
+            if (open) content()
         }
     }
 }

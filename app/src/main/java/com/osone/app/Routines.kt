@@ -190,6 +190,17 @@ class RoutineStore private constructor(private val context: Context) {
         return updated
     }
 
+    /** Cópia de segurança: acrescenta as rotinas que ainda não existem (mesmo id), sem mexer nas atuais. */
+    fun merge(list: List<Routine>): Int {
+        val added = list.filter { routine -> routine.id.isNotBlank() && routine.title.isNotBlank() && routines.none { it.id == routine.id } }
+            .take((30 - routines.size).coerceAtLeast(0))
+        if (added.isEmpty()) return 0
+        routines = routines + added
+        persist()
+        added.forEach { RoutineScheduler.schedule(context, it) }
+        return added.size
+    }
+
     fun setEnabled(id: String, enabled: Boolean) {
         routines = routines.map { if (it.id == id) it.copy(enabled = enabled) else it }
         persist()

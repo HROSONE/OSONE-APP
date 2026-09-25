@@ -25,6 +25,8 @@ class AgentTools(private val context: Context, private val background: Boolean,
     private val knowledge = KnowledgeBase.get(context)
     /** Botões sugeridos por uma rotina (rótulo e tela que abrem), no máximo [MAX_SUGGESTIONS]. */
     val suggestions = ArrayList<Pair<String, Intent>>()
+    /** Imagens criadas nesta resposta (content://…), mostradas no balão do chat. */
+    val images = java.util.Collections.synchronizedList(ArrayList<String>())
     /** Botão Parar do chat: ações pedidas depois disso são recusadas. */
     @Volatile var halted = false
     /** Quantas ferramentas o modelo já pediu (uma rotina que já agiu não é repetida). */
@@ -38,7 +40,7 @@ class AgentTools(private val context: Context, private val background: Boolean,
         val device = local.declarations()
         for (i in 0 until device.length()) device.getJSONObject(i)
             .takeIf { it.optString("name") in (if (background) BACKGROUND_LOCAL else CHAT_LOCAL) }?.let { list.put(it) }
-        if (background) list.put(suggestDeclaration())
+        if (background) list.put(suggestDeclaration()) else list.put(imageDeclaration())
         if (webSearch) list.put(WebSearch.declaration())
         // Ler um link não depende de chave: vale também com a Pesquisa Google embutida do Gemini.
         list.put(WebPage.declaration())
@@ -53,6 +55,7 @@ class AgentTools(private val context: Context, private val background: Boolean,
         if (name == WebSearch.NAME) return await(90) { respond -> WebSearch.run(context, args, respond) }
         if (name == KnowledgeBase.TOOL) return knowledge.search(args)
         if (name == WebPage.NAME) return WebPage.read(args.optString("url"))
+        if (name == IMAGE && !background) return createImage(args.optString("descricao"))
         if (background) {
             if (name == SUGGEST) return suggest(args)
             if (name !in BACKGROUND && name !in BACKGROUND_LOCAL) return JSONObject().put("erro", "Ação indisponível numa rotina.")
@@ -86,6 +89,54 @@ class AgentTools(private val context: Context, private val background: Boolean,
         return JSONObject().put("resultado", "Botão \"$label\" adicionado à notificação; o usuário decide se toca.")
     }
 
+    private fun imageDeclaration(): JSONObject = JSONObject()
+        .put("name", IMAGE)
+        .put("description", "Crie uma imagem (desenho, foto, ilustração, logo) a partir de uma descrição, quando o usuário pedir. " +
+            "A imagem aparece na conversa e fica salva na galeria em Imagens/OSTIE.")
+        .put("parameters", JSONObject().put("type", "OBJECT").put("properties", JSONObject()
+            .put("descricao", prop("STRING", "Descrição detalhada da imagem: assunto, estilo, cores, enquadramento")))
+            .put("required", JSONArray().put("descricao")))
+
+    /** Bloqueante (o chat chama fora da thread principal). */
+    private fun createImage(description: String): JSONObject {
+        if (description.isBlank()) return JSONObject().put("erro", "Descreva a imagem.")
+        val key = SecureKeyStore(context).read() ?: return JSONObject().put("erro", "Criar imagens usa a chave Gemini; salve-a em Ajustes.")
+        return try {
+            val (encoded, type) = ImageGen.generate(key, description)
+            val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+            val uri = saveImage(bytes, if (type.contains("jpeg") || type.contains("jpg")) "jpg" else "png")
+            images += uri.toString()
+            JSONObject().put("resultado", "Imagem criada; ela já aparece na conversa e foi salva na galeria (Imagens/OSTIE). " +
+                "Descreva em uma frase o que foi feito.")
+        } catch (failure: ImageGenException) {
+            JSONObject().put("erro", failure.message)
+        } catch (failure: Exception) {
+            AppDiagnostics.get(context).record("Imagem", "Falha ao criar imagem (${failure.javaClass.simpleName}).")
+            JSONObject().put("erro", "Não consegui criar a imagem (${failure.javaClass.simpleName}).")
+        }
+    }
+
+    /** Galeria (Imagens/OSTIE) no Android 10+; antes disso, a pasta do app. */
+    private fun saveImage(bytes: ByteArray, extension: String): Uri {
+        val name = "ostie-${System.currentTimeMillis()}.$extension"
+        val mime = if (extension == "jpg") "image/jpeg" else "image/png"
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, mime)
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OSTIE")
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("galeria indisponível")
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IllegalStateException("galeria indisponível")
+            return uri
+        }
+        val folder = java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES), "OSTIE").apply { mkdirs() }
+        val file = java.io.File(folder, name).apply { writeBytes(bytes) }
+        return Uri.fromFile(file)
+    }
+
     private fun suggestDeclaration(): JSONObject = JSONObject()
         .put("name", SUGGEST)
         .put("description", "Adicione à notificação da rotina um botão com uma ação pronta: mensagem (SMS ou WhatsApp), " +
@@ -105,6 +156,7 @@ class AgentTools(private val context: Context, private val background: Boolean,
 
     companion object {
         const val SUGGEST = "suggest_action"
+        const val IMAGE = "generate_image"
         const val MAX_SUGGESTIONS = 2
         /** Funcionam sem tela aberta e sem confirmação. */
         private val BACKGROUND = setOf("read_calendar", "read_notifications", "memory_read", "memory_note", "list_routines")

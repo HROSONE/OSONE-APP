@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -184,5 +185,38 @@ class ScreensTest {
         compose.runOnIdle { assertEquals(null, choice) }
         compose.onNodeWithText("Modelo de texto").performClick()
         compose.runOnIdle { assertEquals(true, choice) }
+    }
+
+    @Test fun settingsSectionsCollapseAndOpen() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        compose.setContent {
+            OstieTheme(false) {
+                SettingsScreen(OsoneViewModel(app), LiveVoiceViewModel(app), CodeAuthor.get(app), AppUpdater(activity), MemoryStore.get(app),
+                    darkMode = false, onMemoryFolder = {}, onDarkMode = {}, onBack = {}, onPickUpdate = {},
+                    diagnostics = AppDiagnostics.get(app), onDiagnostics = {})
+            }
+        }
+        // "Dados" começa recolhida; ao tocar no título, a cópia de segurança aparece.
+        compose.onNodeWithText("Cópia de segurança").assertDoesNotExist()
+        compose.onNodeWithText("Dados").performScrollTo().performClick()
+        compose.onNodeWithText("Cópia de segurança").performScrollTo().assertExists()
+    }
+
+    @Test fun welcomeAsksForKeyAndCanBeSkipped() {
+        var done = false
+        var saved: String? = null
+        compose.setContent {
+            OstieTheme(false) {
+                WelcomeScreen(keySaved = false, keyStatus = null, onSaveKey = { saved = it; true }, onOpenKeyPage = {},
+                    micGranted = true, onMicrophone = {}, notificationsGranted = false, onNotifications = {},
+                    onDone = { done = true })
+            }
+        }
+        compose.onNodeWithText("Salvar chave").assertIsNotEnabled()
+        compose.onNode(hasSetTextAction()).performTextInput("chave-de-teste")
+        compose.onNodeWithText("Salvar chave").assertIsEnabled().performClick()
+        compose.onNodeWithText("Liberar notificações").assertExists()
+        compose.onNodeWithText("Pular por enquanto").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals("chave-de-teste", saved); assertTrue(done) }
     }
 }

@@ -6,17 +6,21 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import androidx.compose.runtime.getValue
@@ -142,9 +146,14 @@ object WakeWord {
     }
 }
 
-/** Serviço em primeiro plano que ouve "Ei, Ostie"; pausa o microfone enquanto o Live está aberto. */
+/**
+ * Serviço em primeiro plano que ouve "Ei, Ostie"; pausa o microfone enquanto o Live está aberto
+ * e com bateria fraca ou modo economia (ver [BatteryPolicy]).
+ */
 class WakeWordService : Service() {
     @Volatile private var running = false
+    @Volatile private var batteryPaused = false
+    private var batteryWatch: BroadcastReceiver? = null
     private var worker: Thread? = null
     private var lastWake = 0L
     private val main = Handler(Looper.getMainLooper())
@@ -165,6 +174,7 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
         live = LiveSession.get(application)
+        watchBattery()
         if (worker?.isAlive != true) {
             running = true
             worker = Thread(::listen, "ostie-wake").apply { start() }
@@ -175,7 +185,37 @@ class WakeWordService : Service() {
     override fun onDestroy() {
         running = false
         worker?.interrupt()
+        batteryWatch?.let { try { unregisterReceiver(it) } catch (_: Exception) { } }
+        batteryWatch = null
         super.onDestroy()
+    }
+
+    /** Acompanha bateria e modo economia; a escuta solta o microfone enquanto [batteryPaused]. */
+    private fun watchBattery() {
+        if (batteryWatch != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) { checkBattery(intent.takeIf { it.action == Intent.ACTION_BATTERY_CHANGED }) }
+        }
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED).apply { addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) }
+        val sticky = try { ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED) } catch (_: Exception) { null }
+        batteryWatch = receiver
+        checkBattery(sticky)
+    }
+
+    private fun checkBattery(changed: Intent?) {
+        val battery = changed ?: try { registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) } catch (_: Exception) { null }
+        val level = battery?.let {
+            val raw = it.getIntExtra(BatteryManager.EXTRA_LEVEL, -1); val scale = it.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+            if (raw < 0 || scale <= 0) -1 else raw * 100 / scale
+        } ?: -1
+        val charging = (battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+        val powerSave = getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+        val pause = BatteryPolicy.shouldPause(level, charging, powerSave, batteryPaused)
+        if (pause == batteryPaused) return
+        batteryPaused = pause
+        AppDiagnostics.get(this).record("Escuta ativa", if (pause) "Pausada para economizar bateria ($level%)." else "Retomada.")
+        WakeWord.status = if (pause) "Escuta pausada para economizar bateria. Volta ao carregar o celular." else null
+        try { getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification()) } catch (_: Exception) { }
     }
 
     private fun listen() {
@@ -191,8 +231,8 @@ class WakeWordService : Service() {
         try {
             recognizer = org.vosk.Recognizer(model, 16000f, WakePhrase.grammar).apply { setWords(true) }
             while (running) {
-                // O Live usa o microfone: a escuta solta o dela e espera a conversa acabar.
-                if (live.active != null) {
+                // O Live usa o microfone (ou a bateria está fraca): a escuta solta o dela e espera.
+                if (live.active != null || batteryPaused) {
                     recorder?.let { it.stop(); it.release() }
                     recorder = null
                     try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
@@ -266,8 +306,9 @@ class WakeWordService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_ostie_notification)
-            .setContentTitle("Diga \"Ei, Ostie\"")
-            .setContentText("Escuta ativa no aparelho; nenhum áudio sai do celular.")
+            .setContentTitle(if (batteryPaused) "Escuta pausada" else "Diga \"Ei, Ostie\"")
+            .setContentText(if (batteryPaused) "Pausada para economizar bateria; volta ao carregar o celular."
+                else "Escuta ativa no aparelho; nenhum áudio sai do celular.")
             .setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(null as android.graphics.drawable.Icon?, "Desligar", off).build())
             .build()
