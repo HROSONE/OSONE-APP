@@ -2,10 +2,17 @@ package com.osone.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.util.Base64
+import android.view.Display
+import androidx.annotation.RequiresApi
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
@@ -45,7 +52,14 @@ class OsoneAccessibilityService : AccessibilityService() {
             nodes.put(JSONObject().put("texto", label).put("tipo", node.className?.toString()?.substringAfterLast('.'))
                 .put("clicavel", node.isClickable).put("editavel", node.isEditable)
                 .put("rolavel", node.isScrollable)
-                .put("centro", JSONArray().put(bounds.centerX()).put(bounds.centerY())))
+                .put("centro", JSONArray().put(bounds.centerX()).put(bounds.centerY()))
+                // Estado só quando importa, para a lista continuar curta.
+                .apply {
+                    if (node.isCheckable) put("ligado", node.isChecked)
+                    if (!node.isEnabled) put("desativado", true)
+                    if (node.isFocused) put("em_foco", true)
+                    if (node.isSelected) put("selecionado", true)
+                })
         }
         val metrics = resources.displayMetrics
         return JSONObject().put("app", root.packageName?.toString() ?: "desconhecido")
@@ -63,8 +77,12 @@ class OsoneAccessibilityService : AccessibilityService() {
             .put("atualizado_ha_ms", if (lastWindowUpdate > 0) SystemClock.uptimeMillis() - lastWindowUpdate else -1)
     }
 
-    fun interact(label: String, action: String): JSONObject {
-        val node = find(label) ?: return error("Controle '$label' não encontrado na tela. Inspecione a tela novamente.")
+    /** [order] escolhe entre controles com o mesmo texto (1 = o primeiro, de cima para baixo). */
+    fun interact(label: String, action: String, order: Int = 1): JSONObject {
+        val all = findAll(label)
+        if (all.isEmpty()) return error("Controle '$label' não encontrado na tela. Inspecione a tela novamente.")
+        val node = all.getOrNull(order - 1)
+            ?: return error("Só há ${all.size} controle(s) com '$label' na tela; use ordem entre 1 e ${all.size}.")
         val flag = when (action) {
             "tocar" -> AccessibilityNodeInfo.ACTION_CLICK
             "segurar" -> AccessibilityNodeInfo.ACTION_LONG_CLICK
@@ -75,6 +93,112 @@ class OsoneAccessibilityService : AccessibilityService() {
         val target = candidate ?: node
         lastAction = SystemClock.uptimeMillis()
         return JSONObject().put("aceito_pelo_android", target.performAction(flag))
+            .apply { if (all.size > 1) put("aviso", "Havia ${all.size} controles com esse texto; usado o de número $order.") }
+    }
+
+    /** Texto do controle que está embaixo de um ponto da tela (para a trava de ações sensíveis). */
+    fun labelAt(x: Int, y: Int): String {
+        val root = rootInActiveWindow ?: return ""
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = Long.MAX_VALUE
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val bounds = Rect().also(node::getBoundsInScreen)
+            if (!bounds.contains(x, y)) continue
+            val text = node.text?.toString() ?: node.contentDescription?.toString() ?: ""
+            val area = bounds.width().toLong() * bounds.height()
+            if (text.isNotBlank() && area < bestArea) { best = node; bestArea = area }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return best?.let { it.text?.toString() ?: it.contentDescription?.toString() }.orEmpty()
+    }
+
+    private val main = Handler(Looper.getMainLooper())
+
+    /** Espera um texto aparecer na tela (sem travar o app): responde assim que achar ou ao fim do prazo. */
+    fun waitFor(text: String, seconds: Int, respond: (JSONObject) -> Unit) {
+        if (text.isBlank()) { respond(error("Informe o texto esperado.")); return }
+        val deadline = SystemClock.uptimeMillis() + seconds.coerceIn(1, 15) * 1000L
+        fun poll() {
+            if (find(text) != null) {
+                respond(JSONObject().put("encontrado", true).put("texto", text.take(120)))
+            } else if (SystemClock.uptimeMillis() >= deadline) {
+                respond(JSONObject().put("encontrado", false).put("texto", text.take(120))
+                    .put("dica", "A tela não mostrou esse texto a tempo. Inspecione a tela para ver o que apareceu."))
+            } else main.postDelayed({ poll() }, 350)
+        }
+        poll()
+    }
+
+    /** Rola (até 10 vezes) até o texto aparecer. */
+    fun scrollToText(text: String, direction: String, respond: (JSONObject) -> Unit) {
+        if (text.isBlank()) { respond(error("Informe o texto a procurar.")); return }
+        var tries = 0
+        fun step() {
+            find(text)?.let { node ->
+                val bounds = Rect().also(node::getBoundsInScreen)
+                respond(JSONObject().put("encontrado", true).put("rolagens", tries)
+                    .put("centro", JSONArray().put(bounds.centerX()).put(bounds.centerY())))
+                return
+            }
+            if (tries >= 10 || scroll(direction).has("erro")) {
+                respond(JSONObject().put("encontrado", false).put("rolagens", tries)
+                    .put("dica", "Não achei rolando para $direction. Tente a outra direção ou inspecione a tela."))
+                return
+            }
+            tries++
+            main.postDelayed({ step() }, 450)
+        }
+        step()
+    }
+
+    /** Print da tela (Android 11+), em JPEG base64 de até 1024 px, para o Live ver o que está aberto. */
+    fun screenshot(respond: (JSONObject) -> Unit) {
+        if (Build.VERSION.SDK_INT < 30) { respond(error("Olhar a tela exige Android 11 ou mais novo; peça para compartilhar a tela no Live.")); return }
+        takeShot(respond)
+    }
+
+    @RequiresApi(30)
+    private fun takeShot(respond: (JSONObject) -> Unit) {
+        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+            override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                Thread({
+                    val answer = try {
+                        val hardware = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                            ?: throw IllegalStateException("imagem vazia")
+                        val bitmap = hardware.copy(Bitmap.Config.ARGB_8888, false)
+                        hardware.recycle(); result.hardwareBuffer.close()
+                        val scale = minOf(1f, 1024f / maxOf(bitmap.width, bitmap.height))
+                        val small = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(),
+                            (bitmap.height * scale).toInt(), true) else bitmap
+                        val bytes = java.io.ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 70, it) }.toByteArray()
+                        JSONObject().put("_imagem", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                            .put("tamanho", JSONArray().put(small.width).put(small.height))
+                    } catch (failure: Exception) { error("Não consegui ler a imagem da tela (${failure.javaClass.simpleName}).") }
+                    main.post { respond(answer) }
+                }, "ostie-screenshot").start()
+            }
+
+            override fun onFailure(errorCode: Int) {
+                respond(error(when (errorCode) {
+                    ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS ->
+                        "Sem permissão para ver a tela: desligue e ligue o OSTIE em Ajustes > Acessibilidade."
+                    ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> "Prints muito seguidos; espere um segundo e tente de novo."
+                    ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> "Este app protege a tela (bancos, senhas); não é possível ver."
+                    else -> "O Android não entregou a imagem da tela (código $errorCode)."
+                }))
+            }
+        })
+    }
+
+    /** Cola a área de transferência num campo (pelo texto do campo ou o campo em foco). */
+    fun paste(label: String): JSONObject {
+        val node = if (label.isBlank()) rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) else find(label)
+        if (node?.isEditable != true) return error("Campo editável não encontrado. Toque no campo ou inspecione a tela.")
+        lastAction = SystemClock.uptimeMillis()
+        return JSONObject().put("aceito_pelo_android", node.performAction(AccessibilityNodeInfo.ACTION_PASTE))
     }
 
     fun type(label: String, text: String): JSONObject {
@@ -88,6 +212,7 @@ class OsoneAccessibilityService : AccessibilityService() {
     }
 
     fun scroll(direction: String): JSONObject {
+        if (direction == "esquerda" || direction == "direita") return swipeSideways(direction)
         val root = rootInActiveWindow ?: return error("Sem janela ativa.")
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
@@ -102,6 +227,19 @@ class OsoneAccessibilityService : AccessibilityService() {
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
         return error("Nenhuma área rolável disponível; tente um gesto na tela.")
+    }
+
+    /** Carrosséis e abas: "direita" mostra o que está à direita (o dedo desliza para a esquerda). */
+    private fun swipeSideways(direction: String): JSONObject {
+        val metrics = resources.displayMetrics
+        val y = metrics.heightPixels / 2
+        val (from, to) = if (direction == "direita") metrics.widthPixels * 0.85f to metrics.widthPixels * 0.15f
+            else metrics.widthPixels * 0.15f to metrics.widthPixels * 0.85f
+        val path = Path().apply { moveTo(from, y.toFloat()); lineTo(to, y.toFloat()) }
+        lastAction = SystemClock.uptimeMillis()
+        val accepted = dispatchGesture(GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 350)).build(), null, null)
+        return if (accepted) JSONObject().put("aceito_pelo_android", true) else error("O Android recusou o deslize lateral.")
     }
 
     fun navigate(action: String): JSONObject {
@@ -166,22 +304,27 @@ class OsoneAccessibilityService : AccessibilityService() {
             }, null)
     }
 
-    private fun find(label: String): AccessibilityNodeInfo? {
-        if (label.isBlank()) return null
-        val root = rootInActiveWindow ?: return null
+    private fun find(label: String): AccessibilityNodeInfo? = findAll(label).firstOrNull()
+
+    /** Controles com o texto, de cima para baixo: iguais ao texto primeiro; se não houver, os que o contêm. */
+    private fun findAll(label: String): List<AccessibilityNodeInfo> {
+        if (label.isBlank()) return emptyList()
+        val root = rootInActiveWindow ?: return emptyList()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
-        var partial: AccessibilityNodeInfo? = null
+        val exact = ArrayList<AccessibilityNodeInfo>()
+        val partial = ArrayList<AccessibilityNodeInfo>()
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             if (node.isVisibleToUser && !node.isPassword) {
                 val text = node.text?.toString() ?: node.contentDescription?.toString() ?: ""
-                if (text.equals(label, true) || node.viewIdResourceName?.equals(label, true) == true) return node
-                if (partial == null && text.contains(label, true)) partial = node
+                if (text.equals(label, true) || node.viewIdResourceName?.equals(label, true) == true) exact += node
+                else if (text.contains(label, true)) partial += node
             }
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
-        return partial
+        fun top(node: AccessibilityNodeInfo) = Rect().also(node::getBoundsInScreen).let { it.top * 10_000 + it.left }
+        return exact.ifEmpty { partial }.sortedBy(::top)
     }
 
     private fun error(message: String) = JSONObject().put("erro", message)

@@ -321,6 +321,7 @@ private fun LivePanel(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, phone: P
         PanelRow(OstieIcons.Document, "Memória",
             if (phone.memoryFolder) "Salva em Documentos/OSTIE · sobrevive a reinstalação" else "Permitir pasta de memória no celular",
             phone.onMemory, enabled = !phone.memoryFolder, trailing = if (phone.memoryFolder) OstieColors.Success else null)
+        AgentHistory()
         Hint("A conversa continua fora do app até você encerrar aqui, na bolha ou na notificação. Tela e câmera enviam até 1 imagem por segundo e nada é gravado.")
     }
 }
@@ -374,5 +375,28 @@ private fun VoiceOrb(input: Float, output: Float, connected: Boolean, muted: Boo
         }
         Image(painterResource(R.drawable.ostie_orb), contentDescription = "OSTIE ouvindo e falando",
             modifier = Modifier.fillMaxSize(0.58f + energy * 0.06f))
+    }
+}
+
+/** Últimas ações do agente no celular, para entender o que ele fez quando algo dá errado. */
+@Composable
+private fun AgentHistory() {
+    val entries = AgentLog.entries
+    if (entries.isEmpty()) return
+    val format = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale("pt", "BR")) }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Últimas ações do agente", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f))
+        TextButton(onClick = AgentLog::clear) { Text("Limpar") }
+    }
+    entries.take(12).forEach { entry ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (entry.ok) OstieColors.Success else MaterialTheme.colorScheme.error))
+            Spacer(Modifier.width(10.dp))
+            Text("${format.format(entry.at)} · ${entry.action}${if (entry.detail.isNotBlank()) " " + entry.detail else ""}" +
+                if (entry.ok) "" else " (falhou)",
+                style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
