@@ -6,7 +6,6 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
-- Na branch: pesquisa no chat entende "pesquisa"/"busca na internet" (usa a pergunta anterior), diz o motivo quando falha e, no Groq com GPT OSS, tenta a pesquisa própria do Groq (browser_search, não verificada na API real).
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
 Ideias maiores para depois:
@@ -32,3 +31,4 @@ Ideias maiores para depois:
 | 0.15.84 | Controle do celular com pinça (ampliar/reduzir), toque duplo, segurar e arrastar segurando |
 | 0.15.86 | Agente espera a tela, vê a tela (print), rola até achar, escolhe entre botões repetidos, pede o sim antes de enviar/pagar/apagar, copia e cola, abre painéis rápidos e mostra o histórico de ações |
 | 0.15.88 | Agente mais rápido: tela nova junto com cada ação, sequências de até 10 passos numa chamada, gestos e esperas mais curtos, Live com raciocínio baixo e sem narrar cada passo |
+| 0.15.90 | Chat entende "pesquisa"/"busca na internet" (usa a pergunta anterior), mostra por que a pesquisa falhou e, no Groq com GPT OSS, tenta a pesquisa própria do Groq |
