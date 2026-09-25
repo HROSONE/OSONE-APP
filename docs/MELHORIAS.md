@@ -4,15 +4,25 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
+Plano de 25/09/2026 (tarde), aguardando o ok:
 
-- Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
+Lote A — chat
+1. Botão "Parar" enquanto o chat responde.
+2. Segurar uma mensagem: copiar, compartilhar ou tentar de novo.
+3. Formatação no balão (negrito, itálico, listas, títulos) em vez de proibir Markdown; tabelas viram lista.
+4. Ditado por voz no campo do chat (reconhecimento do Android), sem abrir o Live.
+
+Lote B — rotinas que reagem
+5. Rotina ao chegar notificação de um app ou pessoa (usa o leitor de notificações que já existe).
+6. Rotina ao ligar o carregador (no máximo uma vez por dia).
+7. Formulário de rotina com o tipo de gatilho (horário, notificação, carregador).
 
 Ideias maiores para depois:
 
 - **Busca que sobreviva a 2027**: o Google encerra a Custom Search JSON API em 01/01/2027. Candidatas grátis sem cartão: Tavily (1.000 créditos/mês) e Exa; Serper tem 2.500 buscas únicas (resultados do Google). `GoogleSearchApi` e `WebSearch` já isolam o provedor.
 
-- **Rotinas por evento**: disparar ao carregar, ao chegar em casa (Wi-Fi) ou ao receber notificação de um app, além do horário.
+- **Rotina ao chegar em casa (Wi-Fi)**: exige permissão de localização para ler o nome da rede.
+- **Pular a busca do Google quando a cota do dia acabar** (o usuário disse que por ora não atrapalha).
 
 ## Feitos
 
