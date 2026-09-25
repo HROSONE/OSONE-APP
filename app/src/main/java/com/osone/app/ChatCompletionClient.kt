@@ -17,7 +17,7 @@ class ChatCompletionClient {
     fun streamAnswer(provider: ChatProvider, key: String, model: String, history: List<ChatMessage>,
         systemPrompt: String = DEFAULT_SYSTEM, readTimeoutMs: Int = 45_000,
         functions: JSONArray? = null, runTool: ((String, JSONObject) -> JSONObject)? = null,
-        onDowngrade: (String) -> Unit = {}, onPartial: (String) -> Unit): String {
+        browserSearch: Boolean = false, onDowngrade: (String) -> Unit = {}, onPartial: (String) -> Unit): String {
         require(provider != ChatProvider.GEMINI)
         val endpoint = when (provider) {
             ChatProvider.OPENROUTER -> "https://openrouter.ai/api/v1/chat/completions"
@@ -31,12 +31,16 @@ class ChatCompletionClient {
         }
         val tools = if (functions != null && functions.length() > 0 && runTool != null) OpenAiTools.fromGemini(functions) else null
         var useTools = tools != null
+        // Pesquisa própria do GPT OSS no Groq; vai sozinha (sem as ferramentas do app) e cai fora se o Groq recusar.
+        var useBrowser = browserSearch
+        if (useBrowser) useTools = false
         val answer = StringBuilder()
         var round = 0
         while (true) {
             val prefix = answer.toString()
             val payload = JSONObject().put("model", model).put("stream", true).put("messages", messages)
             if (useTools) payload.put("tools", tools).put("tool_choice", "auto")
+            if (useBrowser) payload.put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
             val turn = try {
                 stream(provider, key, endpoint, payload, readTimeoutMs) { text ->
                     onPartial(if (prefix.isEmpty()) text else "$prefix\n\n$text")
@@ -45,6 +49,15 @@ class ChatCompletionClient {
                 // Modelos sem suporte a ferramentas costumam responder 400/404/422 (ou 413 no limite gratuito do Groq).
                 val refused = failure is ChatStreamInterrupted ||
                     failure is ChatProviderHttpException && failure.status in TOOL_REFUSALS
+                if (round == 0 && useBrowser && (failure is ChatProviderHttpException || failure is ChatStreamInterrupted)) {
+                    useBrowser = false
+                    useTools = tools != null
+                    onDowngrade("$model recusou a pesquisa própria do Groq (" +
+                        (if (failure is ChatProviderHttpException) "HTTP ${failure.status}" else "erro no streaming") + "); respondendo sem ela.")
+                    messages.getJSONObject(0).put("content", systemPrompt + NO_SEARCH)
+                    onPartial("")
+                    continue
+                }
                 if (round == 0 && useTools && refused) {
                     useTools = false
                     messages.getJSONObject(0).put("content", systemPrompt + NO_TOOLS)
@@ -109,6 +122,7 @@ class ChatCompletionClient {
     companion object {
         const val MAX_TOOL_ROUNDS = 5
         private val TOOL_REFUSALS = setOf(400, 404, 413, 422)
+        private const val NO_SEARCH = " A pesquisa na web falhou agora: diga isso ao usuário em uma frase e não invente informação atual."
         private const val NO_TOOLS = " Nesta resposta as ferramentas do app estão indisponíveis: não diga que fez ações; " +
             "explique o que o usuário pode fazer ou peça para tentar com o Gemini."
         const val DEFAULT_SYSTEM = "Você é OSTIE, assistente pessoal do usuário. Responda no idioma do usuário com clareza, precisão e passos práticos quando relevantes. Considere o contexto anterior. Não invente ações externas."

@@ -51,20 +51,32 @@ object WebSearch {
         Thread({
             val diagnostics = AppDiagnostics.get(context)
             var result: JSONObject? = null
+            val reasons = ArrayList<String>()
             if (configured(context)) {
                 try {
                     result = GoogleSearchApi.search(SecureKeyStore(context, KEY_SLOT).read().orEmpty(),
                         preferences(context).getString(CX, null).orEmpty(), query)
                 } catch (failure: Exception) {
-                    diagnostics.record("Busca Google", if (failure is GoogleSearchException) failure.message.orEmpty()
-                        else "Falha de rede (${failure.javaClass.simpleName}).")
+                    val reason = if (failure is GoogleSearchException) failure.message.orEmpty()
+                        else "sem conexão com a busca Google (${failure.javaClass.simpleName})"
+                    reasons += reason
+                    diagnostics.record("Busca Google", reason)
                 }
             }
             respond(result ?: try {
                 JSONObject().put("resultado", gemini(context, query).take(3_000))
             } catch (failure: Exception) {
-                diagnostics.record("Pesquisa", failure.message?.take(120) ?: failure.javaClass.simpleName)
-                JSONObject().put("erro", "Pesquisa indisponível agora. Diga ao usuário que não conseguiu pesquisar.")
+                val reason = when {
+                    failure is GeminiHttpException && failure.status == 429 -> "a cota de pesquisa do Gemini acabou por hoje"
+                    failure is GeminiHttpException -> "o Gemini recusou a pesquisa (HTTP ${failure.status})"
+                    SecureKeyStore(context).read() == null -> "não há chave Gemini salva"
+                    else -> "o Gemini não respondeu (${failure.javaClass.simpleName})"
+                }
+                reasons += reason
+                diagnostics.record("Pesquisa", reason)
+                // O motivo vai junto: o modelo explica ao usuário em vez de dizer só "não consegui".
+                JSONObject().put("erro", "Pesquisa indisponível agora: ${reasons.joinToString("; ")}.")
+                    .put("motivo", reasons.joinToString("; "))
             })
         }, "ostie-web-search").start()
     }

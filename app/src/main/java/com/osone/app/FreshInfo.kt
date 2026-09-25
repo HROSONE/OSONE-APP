@@ -27,8 +27,29 @@ object FreshInfo {
             "esta semana|essa semana|neste m[eê]s|nesse m[eê]s|20[2-9][0-9])\\b",
         RegexOption.IGNORE_CASE)
 
-    /** O pedido depende de informação atual (notícias, preços, clima, datas recentes). */
-    fun needsSearch(text: String): Boolean = fresh.containsMatchIn(text)
+    /** Pedido explícito: "pesquisa", "busca na internet", "procura no Google"… */
+    private val command = Regex("\\b(pesquis[aeo]r?|pesquisa[r]?|busque|busca(r)? n[ao] (internet|web|google)|" +
+        "procur[ae](r)? n[ao] (internet|web|google)|no google|na internet|na web)\\b", RegexOption.IGNORE_CASE)
+
+    /** O pedido depende de informação atual (notícias, preços, clima, datas recentes) ou pede pesquisa. */
+    fun needsSearch(text: String): Boolean = fresh.containsMatchIn(text) || command.containsMatchIn(text)
+
+    /**
+     * O que pesquisar: o próprio pedido ou, quando ele é só a ordem ("pesquisa", "busca na internet"),
+     * a pergunta anterior do usuário.
+     */
+    fun searchQuery(request: String, previous: String?): String {
+        val rest = command.replace(request, " ").replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        val words = rest.split(" ").filter { it.length > 2 && it.lowercase() !in FILLER }
+        return (if (words.isEmpty() && !previous.isNullOrBlank()) previous else request).trim().take(400)
+    }
+
+    private val FILLER = setOf("isso", "sobre", "pra", "para", "mim", "por", "favor", "agora", "ai", "aí", "entao", "então", "vai")
+
+    /** A pesquisa falhou: o modelo explica o motivo em vez de responder de memória. */
+    fun searchFailed(request: String, reason: String): String =
+        "$request\n\n[O app tentou pesquisar na web agora e falhou: $reason. Diga isso ao usuário em uma frase e não invente " +
+            "informação atual.]"
 
     /** Resultados da pesquisa anexados ao pedido do usuário, só na chamada ao modelo (não vão para o histórico). */
     fun withResults(request: String, results: String): String =

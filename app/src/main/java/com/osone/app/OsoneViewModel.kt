@@ -362,16 +362,36 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     val functions = tools?.declarations(webSearch = canSearch)
                     // Modelos pequenos (ex.: GPT OSS 20B) respondem de memória antigos fatos "atuais": pesquisa antes.
                     var request = snapshot
-                    if (canSearch && FreshInfo.needsSearch(prompt)) {
-                        searching = true
-                        val found = try {
-                            withContext(Dispatchers.IO) {
-                                agentTools.run(WebSearch.NAME, org.json.JSONObject().put("consulta", prompt.take(400)))
+                    var browserSearch = false
+                    if (FreshInfo.needsSearch(prompt)) {
+                        // "pesquisa" sozinho pesquisa a pergunta anterior do usuário.
+                        val previous = snapshot.dropLast(1).lastOrNull { it.role == "user" }?.text?.removePrefix("Por voz: ")
+                        val query = FreshInfo.searchQuery(prompt, previous)
+                        val reason: String? = if (!canSearch) {
+                            if (!googleSearch) "a pesquisa está desligada em Ajustes > Pesquisa Google"
+                            else "não há chave Gemini nem API de busca do Google salvas em Ajustes"
+                        } else {
+                            searching = true
+                            val found = try {
+                                withContext(Dispatchers.IO) {
+                                    agentTools.run(WebSearch.NAME, org.json.JSONObject().put("consulta", query))
+                                }
+                            } finally { searching = false }
+                            if (!found.has("erro")) {
+                                request = snapshot.dropLast(1) + ChatMessage("user",
+                                    FreshInfo.withResults(snapshot.last().text + if (query != prompt) "\n(Pesquisado: $query)" else "", found.toString()))
+                                null
+                            } else found.optString("motivo").ifBlank { found.optString("erro") }
+                        }
+                        if (reason != null) {
+                            diagnostics.record("Chat ${selectedProvider.label}", "Pesquisa antes da resposta: $reason.")
+                            // GPT OSS no Groq tem pesquisa própria (browser_search): tenta antes de desistir.
+                            browserSearch = selectedProvider == ChatProvider.GROQ && modelId.contains("gpt-oss")
+                            if (!browserSearch) {
+                                request = snapshot.dropLast(1) + ChatMessage("user", FreshInfo.searchFailed(snapshot.last().text, reason))
+                                error = "Não consegui pesquisar: $reason."
                             }
-                        } finally { searching = false }
-                        if (!found.has("erro")) request = snapshot.dropLast(1) +
-                            ChatMessage("user", FreshInfo.withResults(snapshot.last().text, found.toString()))
-                        else diagnostics.record("Chat ${selectedProvider.label}", "Pesquisa antes da resposta falhou; respondendo sem ela.")
+                        }
                     }
                     while (true) {
                         val currentLabel = "${selectedProvider.label} · $modelId"
@@ -380,8 +400,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                             response = withContext(Dispatchers.IO) {
                                 ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, request,
                                     chatSystem(ChatCompletionClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "",
-                                        tools != null, prompt, canSearch),
+                                        tools != null, prompt, canSearch || browserSearch),
                                     functions = functions, runTool = tools?.let { it::run },
+                                    browserSearch = browserSearch,
                                     onDowngrade = { diagnostics.record("Chat ${selectedProvider.label}", it) }) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
                                 }
