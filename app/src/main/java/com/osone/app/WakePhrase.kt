@@ -36,4 +36,15 @@ object WakePhrase {
 
     private fun normalize(word: String) = Normalizer.normalize(word.lowercase().trim(), Normalizer.Form.NFD)
         .replace(Regex("\\p{Mn}+"), "")
+
+    /**
+     * Pasta do modelo Vosk dentro do zip ("" = raiz): onde está am/final.mdl (formato novo) ou final.mdl
+     * (formato antigo, como o vosk-model-small-pt-0.3). Nulo = o zip não tem modelo.
+     */
+    fun modelRoot(entries: List<String>): String? {
+        val names = entries.map { it.replace('\\', '/').trimStart('/') }
+        names.firstOrNull { it == "am/final.mdl" || it.endsWith("/am/final.mdl") }?.let { return it.removeSuffix("am/final.mdl") }
+        names.firstOrNull { it == "final.mdl" || it.endsWith("/final.mdl") }?.let { return it.removeSuffix("final.mdl") }
+        return null
+    }
 }
