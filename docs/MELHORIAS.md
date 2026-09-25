@@ -6,7 +6,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
-- Agente (lotes A e B de 25/09/2026, na branch até a próxima janela pública): wait_for_ui, leitura da tela com estado das chaves e escolha entre controles repetidos, look_at_screen (print no Live, Android 11+), scroll_to_text e rolagem lateral, trava de ações sensíveis com o sim do usuário por voz (AgentGuard), copiar e colar, painéis rápidos (internet, Wi-Fi, volume, NFC) e histórico de ações no painel do Live.
+- Velocidade do agente (proposta, aguardando o ok): tela nova junto com cada ação, várias ações numa chamada, gestos e esperas mais curtos, thinkingLevel baixo no Live, instrução para agir sem narrar cada passo.
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
 Ideias maiores para depois:
@@ -30,3 +30,4 @@ Ideias maiores para depois:
 | 0.15.80 | Ações no chat e nas rotinas com Groq e OpenRouter, rotinas editáveis e no horário exato, contexto maior no chat, widget na tela inicial, pedidos digitados na Aba de Escrita com "Desfazer", API de busca do Google, testes de tela do Live e dos Ajustes |
 | 0.15.82 | Chat e Live sabem a data de hoje; Groq e OpenRouter pesquisam na web antes de falar de notícias, preços, clima etc.; respostas do chat sem Markdown cru |
 | 0.15.84 | Controle do celular com pinça (ampliar/reduzir), toque duplo, segurar e arrastar segurando |
+| 0.15.86 | Agente espera a tela, vê a tela (print), rola até achar, escolhe entre botões repetidos, pede o sim antes de enviar/pagar/apagar, copia e cola, abre painéis rápidos e mostra o histórico de ações |
