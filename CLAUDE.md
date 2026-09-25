@@ -39,7 +39,7 @@ Repositório privado tem cota de minutos do Actions; público não tem limite. E
 1. Acumule as mudanças na branch da sessão **sem abrir PR** (push em branch não roda CI).
 2. Antes de pedir a abertura: rode os testes JVM, releia o diff e confira que nada sensível entrou no histórico (`git grep` por `AIza`, `gsk_`, `sk-or-`, `ghp_`, `BEGIN PRIVATE KEY`, arquivos `.jks`/`.keystore`/`.env`).
 3. Peça ao usuário: **Settings → General → Danger Zone → Change visibility → Public** (Claude não consegue mudar a visibilidade).
-4. Com o repositório público: abra o PR, acompanhe a CI até ficar verde, mescle, espere a publicação na `main` e confira `latest.json` e o SHA-256 do APK.
+4. Com o repositório público: abra o PR, acompanhe a CI até ficar verde, mescle sem pedir confirmação (o usuário autorizou em 25/09/2026), espere a publicação na `main` e confira `latest.json` e o SHA-256 do APK.
 5. Avise na hora para voltar a **Private** (mesmo caminho). A janela deve durar só o necessário (cerca de 15 a 30 minutos).
 6. Se algo travar no meio, fechar o repositório antes de continuar: a branch fica guardada e a CI é retomada na próxima janela.
 

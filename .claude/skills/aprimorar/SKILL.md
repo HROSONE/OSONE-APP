@@ -54,7 +54,7 @@ Registre o plano em `docs/MELHORIAS.md` (seção "Pendentes"), para a próxima s
    - telas novas ou alteradas → acrescente ou ajuste um teste em `ScreensTest.kt` (Robolectric).
 4. Commit claro em português e push na branch. Siga o protocolo "janela pública" do `CLAUDE.md`: junte lotes sem abrir PR; quando houver bastante coisa, peça ao usuário para deixar o repositório público, e só então abra o PR (resumo e seção de testes honesta: o que foi e o que não foi testado).
 5. Acompanhe a CI do PR (inscreva-se nos eventos do PR). Vermelha → leia o log, corrija na causa, envie de novo. Nunca desative teste.
-6. Verde → mescle o PR, espere a publicação e confira `latest.json` do canal (versão nova e SHA-256 do APK batendo).
+6. Verde → mescle o PR sem pedir confirmação (autorizado pelo usuário), espere a publicação e confira `latest.json` do canal (versão nova e SHA-256 do APK batendo).
 7. Peça ao usuário para voltar o repositório a privado assim que a publicação for conferida.
 8. Atualize `docs/MELHORIAS.md`: mova os itens para "Feitos" com a versão em que saíram.
 
