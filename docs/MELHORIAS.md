@@ -6,6 +6,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
+- Na branch: pesquisa no chat entende "pesquisa"/"busca na internet" (usa a pergunta anterior), diz o motivo quando falha e, no Groq com GPT OSS, tenta a pesquisa própria do Groq (browser_search, não verificada na API real).
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
 Ideias maiores para depois:

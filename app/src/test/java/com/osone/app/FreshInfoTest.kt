@@ -1,5 +1,6 @@
 package com.osone.app
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,5 +30,16 @@ class FreshInfoTest {
         assertTrue(withSearch.contains("pesquise na web"))
         assertTrue(FreshInfo.instructions(date, canSearch = false).contains("não tem informação atualizada"))
         assertTrue(FreshInfo.withResults("notícias de IA", "{\"resultados\":[]}").startsWith("notícias de IA\n\n[Resultados"))
+    }
+
+    @Test fun explicitSearchCommandsUseThePreviousQuestion() {
+        assertTrue(FreshInfo.needsSearch("pesquisa"))
+        assertTrue(FreshInfo.needsSearch("busca na internet por favor"))
+        assertTrue(FreshInfo.needsSearch("sobre o lançamento do gemini 4"))
+        assertEquals("sobre o lançamento do gemini 4", FreshInfo.searchQuery("pesquisa", "sobre o lançamento do gemini 4"))
+        assertEquals("sobre o lançamento do gemini 4", FreshInfo.searchQuery("pesquisa isso aí", "sobre o lançamento do gemini 4"))
+        assertEquals("pesquisa o preço do iPhone 17", FreshInfo.searchQuery("pesquisa o preço do iPhone 17", "outra coisa"))
+        assertEquals("pesquisa", FreshInfo.searchQuery("pesquisa", null))
+        assertTrue(FreshInfo.searchFailed("pedido", "cota esgotada").contains("cota esgotada"))
     }
 }
