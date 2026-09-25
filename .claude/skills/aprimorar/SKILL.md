@@ -52,10 +52,11 @@ Registre o plano em `docs/MELHORIAS.md` (seção "Pendentes"), para a próxima s
    - lógica pura nova → teste JVM em `app/src/test/`; rode-o num projeto Gradle JVM separado no scratchpad (copie só os arquivos puros), como descrito em `CLAUDE.md`;
    - releia o diff procurando erro de compilação: imports, tipos, nomes, parâmetros de funções alteradas em todos os chamadores;
    - telas novas ou alteradas → acrescente ou ajuste um teste em `ScreensTest.kt` (Robolectric).
-4. Commit claro em português, push, PR com resumo e seção de testes honesta (o que foi e o que não foi testado).
+4. Commit claro em português e push na branch. Siga o protocolo "janela pública" do `CLAUDE.md`: junte lotes sem abrir PR; quando houver bastante coisa, peça ao usuário para deixar o repositório público, e só então abra o PR (resumo e seção de testes honesta: o que foi e o que não foi testado).
 5. Acompanhe a CI do PR (inscreva-se nos eventos do PR). Vermelha → leia o log, corrija na causa, envie de novo. Nunca desative teste.
 6. Verde → mescle o PR, espere a publicação e confira `latest.json` do canal (versão nova e SHA-256 do APK batendo).
-7. Atualize `docs/MELHORIAS.md`: mova os itens para "Feitos" com a versão em que saíram.
+7. Peça ao usuário para voltar o repositório a privado assim que a publicação for conferida.
+8. Atualize `docs/MELHORIAS.md`: mova os itens para "Feitos" com a versão em que saíram.
 
 No modo autônomo, continue para o próximo lote até acabar a lista ou até encontrar algo que precise de decisão do usuário (aí pergunte e pare).
 
@@ -70,7 +71,7 @@ Conte ao usuário, curto e sem jargão:
 
 ## Limites
 
-- **Minutos de CI**: cada ciclo custa cerca de 4 min no PR e de 5 a 6 min na `main`. Agrupe mudanças; mudanças só em documentação (`*.md`, `docs/`) não rodam CI.
+- **Minutos de CI**: cada ciclo custa cerca de 4 min no PR e de 5 a 6 min na `main` enquanto o repositório é privado. Agrupe mudanças e use a janela pública (protocolo no `CLAUDE.md`); mudanças só em documentação (`*.md`, `docs/`) não rodam CI.
 - **Chaves e segredos**: nunca grave chaves, tokens ou dados pessoais em arquivos, commits ou logs. Se o usuário passar uma chave para teste, use só em memória na sessão.
 - **Mudanças que exigem ação do usuário** (permissões novas, troca de conta, pagamento, configurações no GitHub): explique antes e deixe claro o passo a passo.
 - **Nunca** apague dados do usuário (memória, rotinas, conversa) sem migração ou cópia de segurança.
