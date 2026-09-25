@@ -4,8 +4,6 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 25/09/2026 (noite): feito (conversas, imagens, boas-vindas, Ajustes recolhíveis, cópia de segurança, bateria); versão em "Feitos".
-
 Do plano de 25/09/2026 (tarde), ficaram:
 
 - Rotina ao ligar o carregador (no máximo uma vez por dia).
@@ -39,3 +37,4 @@ Ideias maiores para depois:
 | 0.15.92 | Ler páginas (read_url), Tavily como segunda busca, cache de 10 min, fontes na tela do Live, Live continua o chat, aviso "Pesquisando…", reconexão sem cortar a fala e correção dos engasgos de voz nos modelos 3.x |
 | 0.15.95 | Chat com botão Parar, menu da mensagem (copiar, compartilhar, tentar de novo), formatação (negrito, listas, títulos) e ditado por voz; rotinas que disparam ao chegar notificação |
 | 0.15.97 | "Ei, Ostie" volta a baixar o reconhecedor: aceita o modelo de voz no formato antigo (pt-0.3) e avisa download interrompido |
+| 0.15.99 | Várias conversas com busca, criar imagens no chat, boas-vindas no primeiro uso, Ajustes recolhíveis, cópia de segurança de ajustes e rotinas, "Ei, Ostie" pausa com bateria fraca |
