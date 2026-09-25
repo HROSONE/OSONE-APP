@@ -33,7 +33,7 @@ class GesturePlanTest {
     @Test fun dragHoldsBeforeMovingAndNeedsBothEnds() {
         val plan = GesturePlan.build("arrastar", 200, 1500, 800, 400, null, w, h)
         assertTrue(plan.hold > 0)
-        assertEquals(StrokeSpec(200, 1500, 800, 400, 0, 700), plan.strokes.single())
+        assertEquals(StrokeSpec(200, 1500, 800, 400, 0, 450), plan.strokes.single())
         val missing = runCatching { GesturePlan.build("arrastar", 200, 1500, null, null, null, w, h) }
         assertTrue(missing.exceptionOrNull() is IllegalArgumentException)
     }
@@ -41,6 +41,6 @@ class GesturePlanTest {
     @Test fun rejectsOffScreenAndUnknownGestures() {
         assertTrue(runCatching { GesturePlan.build("segurar", 5000, 10, null, null, null, w, h) }.isFailure)
         assertTrue(runCatching { GesturePlan.build("girar", 10, 10, null, null, null, w, h) }.isFailure)
-        assertEquals(800L, GesturePlan.build("segurar", 10, 10, null, null, null, w, h).strokes.single().duration)
+        assertEquals(600L, GesturePlan.build("segurar", 10, 10, null, null, null, w, h).strokes.single().duration)
     }
 }

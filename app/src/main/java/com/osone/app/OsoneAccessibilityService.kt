@@ -36,12 +36,12 @@ class OsoneAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
     override fun onDestroy() { if (active === this) active = null; super.onDestroy() }
 
-    fun inspect(): JSONObject {
+    fun inspect(limit: Int = 120): JSONObject {
         val root = rootInActiveWindow ?: return error("A janela atual não expôs controles acessíveis. Tente mostrar a tela.")
         val nodes = JSONArray()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
-        while (queue.isNotEmpty() && nodes.length() < 120) {
+        while (queue.isNotEmpty() && nodes.length() < limit) {
             val node = queue.removeFirst()
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
             if (!node.isVisibleToUser) continue
@@ -64,7 +64,7 @@ class OsoneAccessibilityService : AccessibilityService() {
         val metrics = resources.displayMetrics
         return JSONObject().put("app", root.packageName?.toString() ?: "desconhecido")
             .put("tela", JSONArray().put(metrics.widthPixels).put(metrics.heightPixels))
-            .put("controles", nodes).put("limite", nodes.length() == 120)
+            .put("controles", nodes).put("limite", nodes.length() == limit)
             .put("atualizado_ha_ms", if (lastWindowUpdate > 0) SystemClock.uptimeMillis() - lastWindowUpdate else -1)
     }
 
@@ -117,6 +117,20 @@ class OsoneAccessibilityService : AccessibilityService() {
 
     private val main = Handler(Looper.getMainLooper())
 
+    /**
+     * Espera a tela parar de mudar depois de uma ação (ou no máximo [maxMs]) e devolve a leitura dela:
+     * assim o modelo não precisa gastar outra ida e volta com inspect_screen.
+     */
+    fun settle(maxMs: Long = 1500, minMs: Long = 0, respond: (JSONObject) -> Unit) {
+        val start = SystemClock.uptimeMillis()
+        fun check() {
+            val now = SystemClock.uptimeMillis()
+            val quiet = now - maxOf(lastWindowUpdate, lastAction) >= 250
+            if ((quiet && now - start >= minMs) || now - start >= maxMs) respond(inspect(60)) else main.postDelayed({ check() }, 80)
+        }
+        main.postDelayed({ check() }, 150)
+    }
+
     /** Espera um texto aparecer na tela (sem travar o app): responde assim que achar ou ao fim do prazo. */
     fun waitFor(text: String, seconds: Int, respond: (JSONObject) -> Unit) {
         if (text.isBlank()) { respond(error("Informe o texto esperado.")); return }
@@ -127,7 +141,7 @@ class OsoneAccessibilityService : AccessibilityService() {
             } else if (SystemClock.uptimeMillis() >= deadline) {
                 respond(JSONObject().put("encontrado", false).put("texto", text.take(120))
                     .put("dica", "A tela não mostrou esse texto a tempo. Inspecione a tela para ver o que apareceu."))
-            } else main.postDelayed({ poll() }, 350)
+            } else main.postDelayed({ poll() }, 200)
         }
         poll()
     }
@@ -149,7 +163,7 @@ class OsoneAccessibilityService : AccessibilityService() {
                 return
             }
             tries++
-            main.postDelayed({ step() }, 450)
+            main.postDelayed({ step() }, 300)
         }
         step()
     }
@@ -238,7 +252,7 @@ class OsoneAccessibilityService : AccessibilityService() {
         val path = Path().apply { moveTo(from, y.toFloat()); lineTo(to, y.toFloat()) }
         lastAction = SystemClock.uptimeMillis()
         val accepted = dispatchGesture(GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 350)).build(), null, null)
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 250)).build(), null, null)
         return if (accepted) JSONObject().put("aceito_pelo_android", true) else error("O Android recusou o deslize lateral.")
     }
 
@@ -264,7 +278,7 @@ class OsoneAccessibilityService : AccessibilityService() {
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()); if (endX != null && endY != null)
             lineTo(endX.toFloat(), endY.toFloat()) }
         val swipe = endX != null && endY != null
-        val stroke = GestureDescription.StrokeDescription(path, 0, if (swipe) 420 else 70)
+        val stroke = GestureDescription.StrokeDescription(path, 0, if (swipe) 250 else 50)
         lastAction = SystemClock.uptimeMillis()
         val accepted = dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
         return JSONObject().put("gesto_aceito", accepted).put("concluido", "Ainda não confirmado; inspecione a tela.")
@@ -276,7 +290,8 @@ class OsoneAccessibilityService : AccessibilityService() {
         val plan = try {
             GesturePlan.build(type, x, y, endX, endY, amount, metrics.widthPixels, metrics.heightPixels)
         } catch (invalid: IllegalArgumentException) { return error(invalid.message ?: "Gesto inválido.") }
-        lastAction = SystemClock.uptimeMillis()
+        // A tela só "assenta" depois que o gesto inteiro terminou.
+        lastAction = SystemClock.uptimeMillis() + plan.hold + plan.strokes.maxOf { it.start + it.duration }
         val accepted = if (plan.hold > 0) dragWithHold(plan.hold, plan.strokes.single())
             else dispatchGesture(GestureDescription.Builder().apply { plan.strokes.forEach { addStroke(stroke(it)) } }.build(),
                 null, null)

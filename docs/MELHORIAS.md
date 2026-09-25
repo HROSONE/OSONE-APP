@@ -6,7 +6,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
-- Velocidade do agente (proposta, aguardando o ok): tela nova junto com cada ação, várias ações numa chamada, gestos e esperas mais curtos, thinkingLevel baixo no Live, instrução para agir sem narrar cada passo.
+- Velocidade do agente (na branch): tela nova junto com cada ação, várias ações numa chamada, gestos e esperas mais curtos, thinkingLevel baixo no Live, instrução para agir sem narrar cada passo.
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
 Ideias maiores para depois:
