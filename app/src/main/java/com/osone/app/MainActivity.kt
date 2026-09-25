@@ -74,7 +74,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var overlayRequested = false
     /** Toque na notificação de atualização: abre Ajustes e instala. */
     private var installRequested by mutableStateOf(false)
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationsGranted = granted || Build.VERSION.SDK_INT < 33
+    }
+    /** Primeiro uso (sem chave Gemini): tela de boas-vindas em três passos. */
+    private var showWelcome by mutableStateOf(false)
+    private var welcomeKeySaved by mutableStateOf(false)
+    private var micGranted by mutableStateOf(false)
+    private var notificationsGranted by mutableStateOf(true)
+    private val welcomeMicPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        micGranted = granted
+    }
     private val diagnostics by lazy { AppDiagnostics.get(applicationContext) }
     private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openLive() else { permissionError = true; diagnostics.record("Permissão", "Acesso ao microfone negado.") }
@@ -197,7 +207,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         UpdateCheckWorker.schedule(this, updater.autoUpdate)
         WakeWord.load(this)
         MemoryOrganizer.schedule(this)
-        if (Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {
+        showWelcome = !preferences.getBoolean("welcome_done", false) && !viewModel.configuredFor(ChatProvider.GEMINI)
+        if (!showWelcome && Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {
             preferences.edit().putBoolean("asked_notifications", true).apply()
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -221,7 +232,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             OstieTheme(darkMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    if (showLive) LiveScreen(live, codeAuthor, diagnostics, bubblePermission, accessibilityEnabled,
+                    if (showWelcome) WelcomeScreen(keySaved = welcomeKeySaved, keyStatus = viewModel.keyStatus,
+                        onSaveKey = { input -> viewModel.saveKey(input, ChatProvider.GEMINI).also { if (it) welcomeKeySaved = true } },
+                        onOpenKeyPage = {
+                            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))) }
+                            catch (_: Exception) { }
+                        },
+                        micGranted = micGranted, onMicrophone = { welcomeMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                        notificationsGranted = notificationsGranted, onNotifications = {
+                            if (Build.VERSION.SDK_INT >= 33) {
+                                preferences.edit().putBoolean("asked_notifications", true).apply()
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        },
+                        onDone = { preferences.edit().putBoolean("welcome_done", true).apply(); showWelcome = false })
+                    else if (showLive) LiveScreen(live, codeAuthor, diagnostics, bubblePermission, accessibilityEnabled,
                         phone = PhoneAccess(notificationsAccess, contactsGranted, memory.persistent, calendarGranted,
                             onNotifications = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                             onContacts = { contactsPermission.launch(Manifest.permission.READ_CONTACTS) },
@@ -355,6 +380,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         notificationsAccess = OstieNotificationListener.enabled(this)
         contactsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
         calendarGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+        micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        notificationsGranted = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         exactAlarms = Build.VERSION.SDK_INT < 31 || getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
         memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
         RoutineStore.get(this).restoreFromFolder()

@@ -26,7 +26,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
             .padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionCard("Perfil e aparência", OstieIcons.Settings) {
+            SectionCard("Perfil e aparência", OstieIcons.Settings, collapsible = true, initiallyOpen = false) {
                 val context = LocalContext.current
                 val profile = remember { UserProfile.get(context) }
                 var name by remember { mutableStateOf(profile.name) }
@@ -52,7 +52,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     }) { Text(if (notificationsOn) "Gerenciar" else "Ativar") }
                 }
             }
-            SectionCard("Chaves de API", OstieIcons.Shield) {
+            SectionCard("Chaves de API", OstieIcons.Shield, collapsible = true, initiallyOpen = true) {
                 Hint("Cada chave fica criptografada no aparelho e só vai ao respectivo serviço. Gemini é obrigatória para o Live.")
                 ProviderKeyField(viewModel, ChatProvider.GEMINI)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -64,7 +64,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                         color = if (viewModel.keySaveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 }
             }
-            SectionCard("Pesquisa Google", OstieIcons.Search) {
+            SectionCard("Pesquisa Google", OstieIcons.Search, collapsible = true, initiallyOpen = false) {
                 SettingSwitch("Pesquisar na web quando precisar", viewModel.googleSearch, {
                     viewModel.updateGoogleSearch(it)
                     if (live.active != null) live.start() // O Live só recebe ferramentas ao conectar.
@@ -74,7 +74,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SearchApiFields(viewModel, onChanged = { if (live.active != null) live.start() })
             }
-            SectionCard("Chat escrito", OstieIcons.Chat) {
+            SectionCard("Chat escrito", OstieIcons.Chat, collapsible = true, initiallyOpen = true) {
                 OptionPicker("Provedor", viewModel.provider.label, ChatProvider.entries, { it.label }, viewModel::selectProvider)
                 val appContext = LocalContext.current
                 val chatVoice = remember { ChatVoice.get(appContext) }
@@ -98,7 +98,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     ChatProvider.OPENROUTER -> OpenRouterModelField(viewModel)
                 }
             }
-            SectionCard("Voz em tempo real", OstieIcons.Wave) {
+            SectionCard("Voz em tempo real", OstieIcons.Wave, collapsible = true, initiallyOpen = false) {
                 LiveModelPicker(live)
                 LiveVoicePicker(live)
                 SettingSwitch("Trocar de modelo se falhar", live.fallback, live::updateFallback)
@@ -107,7 +107,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                 CodeAuthorPicker(codeAuthor)
                 Hint("O modelo de texto é o escolhido em Chat escrito acima.")
             }
-            SectionCard("Escuta ativa", OstieIcons.Mic) {
+            SectionCard("Escuta ativa", OstieIcons.Mic, collapsible = true, initiallyOpen = false) {
                 SettingSwitch("Ouvir \"Ei, Ostie\"", WakeWord.on, onWakeWord,
                     "De qualquer tela, diga \"Ei, Ostie\" e o Live abre. O reconhecimento roda no celular e nenhum áudio sai dele até o Live abrir.")
                 if (WakeWord.downloading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -118,7 +118,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                 }
                 if (WakeWord.on) Hint("Gasta um pouco mais de bateria e o Android mostra o ícone do microfone enquanto escuta. Depois de reiniciar o celular, abra o app uma vez para voltar a escutar.")
             }
-            SectionCard("Atualizações", OstieIcons.ArrowDown) {
+            SectionCard("Atualizações", OstieIcons.ArrowDown, collapsible = true, initiallyOpen = false) {
                 var custom by remember { mutableStateOf(updater.feedUrl.isNotBlank()) }
                 Text("Versão instalada: ${updater.installedVersionName}", style = MaterialTheme.typography.bodyMedium)
                 SettingSwitch("Atualizar automaticamente", updater.autoUpdate, updater::updateAutoUpdate,
@@ -143,7 +143,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     Hint("O Android só atualiza se o APK tiver a mesma assinatura da versão instalada.")
                 }
             }
-            SectionCard("Memória do OSTIE", OstieIcons.Document) {
+            SectionCard("Memória do OSTIE", OstieIcons.Document, collapsible = true, initiallyOpen = false) {
                 var editing by remember { mutableStateOf(false) }
                 var draft by remember(memory.text) { mutableStateOf(memory.text) }
                 if (memory.persistent) Text("Salva em ${memory.location}", color = OstieColors.Success,
@@ -178,7 +178,15 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
             }
             val knowledgeContext = LocalContext.current
             KnowledgeSection(remember { KnowledgeBase.get(knowledgeContext) }, onKnowledgeFile)
-            SectionCard("Dados", OstieIcons.Delete) {
+            SectionCard("Dados", OstieIcons.Delete, collapsible = true, initiallyOpen = false) {
+                Text("Cópia de segurança", style = MaterialTheme.typography.bodyLarge)
+                Hint("Salva ajustes e rotinas em Documentos/OSTIE, para trocar de celular ou reinstalar. As chaves não entram.")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = viewModel::exportBackup) { Text("Exportar") }
+                    OutlinedButton(onClick = viewModel::importBackup) { Text("Importar") }
+                }
+                viewModel.backupStatus?.let { Hint(it) }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 OutlinedButton(onClick = { confirmClear = true }, colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.error)) { Text("Apagar conversa deste aparelho") }
                 viewModel.error?.let { Hint(it, MaterialTheme.colorScheme.error) }

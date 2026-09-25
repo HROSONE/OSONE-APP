@@ -278,6 +278,101 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         history.clear()
         error = null
     }
+
+    /** Cópia de segurança dos ajustes e rotinas em Documentos/OSTIE (sem chaves). */
+    var backupStatus by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+
+    fun exportBackup() {
+        if (!memory.hasFolderAccess()) {
+            backupStatus = "Permita a pasta do OSTIE (Ajustes > Memória do OSTIE) para salvar a cópia em Documentos/OSTIE."
+            return
+        }
+        viewModelScope.launch {
+            backupStatus = withContext(Dispatchers.IO) {
+                try {
+                    val routines = RoutineStore.get(getApplication()).routines
+                    memory.writeShared(SettingsBackup.FILE, SettingsBackup.build(settings.all,
+                        org.json.JSONArray(routines.map { it.toJson() }), System.currentTimeMillis()))
+                    "Cópia salva em Documentos/OSTIE/${SettingsBackup.FILE}: ajustes e ${routines.size} rotina(s). " +
+                        "As chaves não entram; a memória e a base de conhecimento já ficam na mesma pasta."
+                } catch (failure: Exception) { "Não consegui salvar a cópia (${failure.javaClass.simpleName})." }
+            }
+        }
+    }
+
+    fun importBackup() {
+        viewModelScope.launch {
+            backupStatus = withContext(Dispatchers.IO) {
+                try {
+                    val text = memory.readShared(SettingsBackup.FILE)
+                        ?: return@withContext "Nenhuma cópia em Documentos/OSTIE (ou a pasta do OSTIE não está permitida)."
+                    val parsed = SettingsBackup.parse(text)
+                    val current = settings.all
+                    val editor = settings.edit()
+                    parsed.settings.forEach { (name, value) ->
+                        when (value) {
+                            is Boolean -> editor.putBoolean(name, value)
+                            is String -> editor.putString(name, value)
+                            is Number -> when (val number = SettingsBackup.number(value, current[name])) {
+                                is Int -> editor.putInt(name, number)
+                                is Long -> editor.putLong(name, number)
+                                is Float -> editor.putFloat(name, number)
+                            }
+                        }
+                    }
+                    editor.apply()
+                    val routines = (0 until parsed.routines.length()).mapNotNull { i ->
+                        parsed.routines.optJSONObject(i)?.let { runCatching { Routine.fromJson(it) }.getOrNull() }
+                    }
+                    val added = withContext(Dispatchers.Main) { RoutineStore.get(getApplication()).merge(routines) }
+                    "Ajustes restaurados e $added rotina(s) adicionada(s). Feche e abra o app para aplicar tudo. " +
+                        "As chaves precisam ser coladas de novo."
+                } catch (failure: Exception) { "Não consegui ler a cópia (${failure.message ?: failure.javaClass.simpleName})." }
+            }
+        }
+    }
+
+    /** Conversas anteriores (menu do chat). */
+    var savedConversations by androidx.compose.runtime.mutableStateOf<List<SavedConversation>>(emptyList())
+        private set
+
+    fun loadSavedConversations() {
+        viewModelScope.launch { savedConversations = withContext(Dispatchers.IO) { history.saved() } }
+    }
+
+    /** Nova conversa: a atual vai para Conversas anteriores (nada se perde). */
+    fun newConversation() {
+        if (busy) return
+        val current = messages
+        messages = emptyList()
+        error = null
+        viewModelScope.launch {
+            savedConversations = withContext(Dispatchers.IO) { history.archive(current); history.clear(); history.saved() }
+        }
+    }
+
+    /** Abre uma conversa anterior; a atual é guardada antes. */
+    fun openConversation(conversation: SavedConversation) {
+        if (busy) return
+        val current = messages
+        messages = conversation.messages
+        error = null
+        viewModelScope.launch {
+            savedConversations = withContext(Dispatchers.IO) {
+                history.archive(current)
+                history.delete(conversation.id)
+                history.save(conversation.messages)
+                history.saved()
+            }
+        }
+    }
+
+    fun deleteConversation(conversation: SavedConversation) {
+        viewModelScope.launch {
+            savedConversations = withContext(Dispatchers.IO) { history.delete(conversation.id); history.saved() }
+        }
+    }
     fun dismissError() { error = null }
 
     fun attach(uri: Uri) {
@@ -312,7 +407,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         messages = (messages + turns.flatMap { (user, model) ->
             listOfNotNull(user.takeIf { it.isNotBlank() }?.let { ChatMessage("user", "Por voz: $it") },
                 model.takeIf { it.isNotBlank() }?.let { ChatMessage("model", it) })
-        }).takeLast(100)
+        }).takeLast(400)
         viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
     }
 
@@ -505,7 +600,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     lastAnswerModel = null
                 }
-                messages = messages + ChatMessage("model", response)
+                // Imagens criadas nesta resposta viram linhas "[imagem] uri", que o balão mostra como figura.
+                val created = synchronized(sendTools.images) { sendTools.images.toList() }
+                messages = messages + ChatMessage("model", response + created.joinToString("") { "\n\n$IMAGE_MARK$it" })
                 streamingText = ""
                 withContext(Dispatchers.IO) { history.save(messages) }
                 if (attachment == selectedFile) attachment = null
@@ -547,7 +644,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    private companion object {
+    companion object {
+        const val IMAGE_MARK = "[imagem] "
         /** O balão do chat mostra texto puro: Markdown apareceria com ** e | soltos. */
         const val PLAIN_TEXT = " O chat mostra Markdown simples: pode usar **negrito**, *itálico*, títulos com #, listas com - ou 1. " +
             "e blocos de código entre ```. Evite tabelas (no celular viram lista)."
@@ -555,6 +653,6 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
             "mensagens e ligações prontas, rotas, notificações, rotinas agendadas, apps e a sua memória. Use-as quando o " +
             "usuário pedir para agir ou quando precisar dos dados delas, e diga em uma frase o que fez. Mensagens e ligações " +
             "só abrem a tela pronta: o usuário é quem envia ou liga. Anote na memória (memory_note) fatos duradouros que o " +
-            "usuário contar. Nunca diga que fez algo se a ferramenta devolveu erro."
+            "usuário contar. Para criar imagens, use generate_image. Nunca diga que fez algo se a ferramenta devolveu erro."
     }
 }

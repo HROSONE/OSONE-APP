@@ -12,6 +12,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.em
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,6 +53,7 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
     onAnswer: (String) -> Unit, onDictate: () -> Unit = {}) {
     var draft by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
     LaunchedEffect(viewModel.incomingText) {
         viewModel.incomingText?.let { shared -> draft = if (draft.isBlank()) shared else "$draft\n$shared"; viewModel.consumeIncoming() }
@@ -68,6 +77,12 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
                 Box {
                     BarIcon(OstieIcons.Menu, "Abrir menu", { menuExpanded = true })
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(text = { Text("Nova conversa") },
+                            leadingIcon = { Icon(OstieIcons.Chat, contentDescription = null) }, enabled = !viewModel.busy,
+                            onClick = { menuExpanded = false; viewModel.newConversation() })
+                        DropdownMenuItem(text = { Text("Conversas anteriores") },
+                            leadingIcon = { Icon(OstieIcons.Search, contentDescription = null) },
+                            onClick = { menuExpanded = false; viewModel.loadSavedConversations(); showHistory = true })
                         DropdownMenuItem(text = { Text("Aba de Escrita") },
                             leadingIcon = { Icon(OstieIcons.Document, contentDescription = null) },
                             onClick = { menuExpanded = false; onWriting() })
@@ -126,9 +141,85 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
                     trailingIcon = { Icon(OstieIcons.Close, contentDescription = "Remover anexo", modifier = Modifier.size(18.dp)) })
             }
         }
+        if (showHistory) ConversationsDialog(viewModel.savedConversations, onOpen = { viewModel.openConversation(it); showHistory = false },
+            onDelete = viewModel::deleteConversation, onDismiss = { showHistory = false })
         Composer(draft, { draft = it }, canSend = (draft.isNotBlank() || viewModel.attachment != null) && !viewModel.busy,
             busy = viewModel.busy, liveActive = liveActive, onAttach = onAttach, onMic = onMic, onSend = send,
             onStop = viewModel::stopAnswer, onDictate = onDictate)
+    }
+}
+
+/** Imagem criada pelo OSTIE; tocar abre na galeria. */
+@Composable
+private fun ChatImage(address: String) {
+    val context = LocalContext.current
+    var bitmap by remember(address) { mutableStateOf<ImageBitmap?>(null) }
+    var failed by remember(address) { mutableStateOf(false) }
+    LaunchedEffect(address) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(android.net.Uri.parse(address))?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 })
+                }?.asImageBitmap()
+            }.getOrNull()
+        }
+        failed = bitmap == null
+    }
+    val image = bitmap
+    if (image != null) Image(image, contentDescription = "Imagem criada pelo OSTIE", contentScale = ContentScale.FillWidth,
+        modifier = Modifier.padding(6.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(enabled = address.startsWith("content:")) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(android.net.Uri.parse(address), "image/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            } catch (_: Exception) { }
+        })
+    else if (failed) Text("Imagem indisponível (apagada da galeria?)", style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+}
+
+/** Conversas anteriores com busca: tocar abre (a atual é guardada), a lixeira apaga depois de confirmar. */
+@Composable
+private fun ConversationsDialog(conversations: List<SavedConversation>, onOpen: (SavedConversation) -> Unit,
+    onDelete: (SavedConversation) -> Unit, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf<SavedConversation?>(null) }
+    val format = remember { java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale("pt", "BR")) }
+    val found = remember(conversations, query) { ChatHistory.search(conversations, query) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Conversas anteriores") },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(query, { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Buscar nas conversas") },
+                    leadingIcon = { Icon(OstieIcons.Search, contentDescription = null) })
+                if (found.isEmpty()) Hint(if (conversations.isEmpty()) "Nenhuma conversa guardada ainda. Use \"Nova conversa\" no menu."
+                    else "Nada encontrado.")
+                LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(found, key = { it.conversation.id }) { match ->
+                        Surface(onClick = { onOpen(match.conversation) }, shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(match.conversation.title, style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(match.snippet.ifBlank { "${format.format(match.conversation.updatedAt)} · " +
+                                        "${match.conversation.messages.size} mensagens" },
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                                BarIcon(OstieIcons.Delete, "Apagar conversa", { confirm = match.conversation },
+                                    tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    confirm?.let { conversation ->
+        AlertDialog(onDismissRequest = { confirm = null }, title = { Text("Apagar \"${conversation.title}\"?") },
+            text = { Text("A conversa some deste aparelho.") },
+            confirmButton = { TextButton(onClick = { onDelete(conversation); confirm = null }) { Text("Apagar") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancelar") } })
     }
 }
 
@@ -171,9 +262,15 @@ private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, Str
             Column {
                 val linkColor = if (user) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
                 val codeColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                val content = remember(text, linkColor, codeColor) {
-                    if (user) linkify(text, linkColor) else renderMarkdown(text, linkColor, codeColor)
+                // Linhas "[imagem] uri" (imagens criadas pelo OSTIE) viram figuras abaixo do texto.
+                val images = remember(text) { if (user) emptyList() else text.lines().filter { it.startsWith(OsoneViewModel.IMAGE_MARK) }
+                    .map { it.removePrefix(OsoneViewModel.IMAGE_MARK).trim() } }
+                val body = remember(text) { if (images.isEmpty()) text
+                    else text.lines().filterNot { it.startsWith(OsoneViewModel.IMAGE_MARK) }.joinToString("\n").trim() }
+                val content = remember(body, linkColor, codeColor) {
+                    if (user) linkify(body, linkColor) else renderMarkdown(body, linkColor, codeColor)
                 }
+                images.forEach { ChatImage(it) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     val plain = if (user) text else MarkdownLite.plain(text)
                     DropdownMenuItem(text = { Text("Copiar") }, leadingIcon = { Icon(OstieIcons.Copy, contentDescription = null) },
