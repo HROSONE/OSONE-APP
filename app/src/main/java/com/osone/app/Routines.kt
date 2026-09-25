@@ -33,20 +33,25 @@ import java.util.Locale
 import java.util.UUID
 
 /** [days] usa Calendar.DAY_OF_WEEK (1 = domingo); vazio = todos os dias. */
+/** [onNotification] preenchido = a rotina dispara com notificações (termos separados por vírgula), não por horário. */
 data class Routine(val id: String, val title: String, val instruction: String, val hour: Int, val minute: Int,
-    val days: Set<Int>, val reminder: Boolean, val enabled: Boolean = true) {
+    val days: Set<Int>, val reminder: Boolean, val enabled: Boolean = true, val onNotification: String = "") {
     val timeLabel get() = "%02d:%02d".format(hour, minute)
     val daysLabel get() = RoutineSchedule.daysLabel(days)
+    val byEvent get() = onNotification.isNotBlank()
+    /** "08:00, dias úteis" ou "ao chegar notificação de WhatsApp, Ana". */
+    val whenLabel get() = if (byEvent) "ao chegar notificação de $onNotification" else "$timeLabel, $daysLabel"
 
     fun toJson(): JSONObject = JSONObject().put("id", id).put("titulo", title).put("instrucao", instruction)
         .put("hora", hour).put("minuto", minute).put("dias", JSONArray(days.sorted()))
         .put("lembrete", reminder).put("ativa", enabled)
+        .apply { if (byEvent) put("notificacao", onNotification) }
 
     companion object {
         fun fromJson(json: JSONObject) = Routine(json.optString("id"), json.optString("titulo"),
             json.optString("instrucao"), json.optInt("hora"), json.optInt("minuto"),
             json.optJSONArray("dias")?.let { list -> (0 until list.length()).map { list.optInt(it) }.toSet() } ?: emptySet(),
-            json.optBoolean("lembrete"), json.optBoolean("ativa", true))
+            json.optBoolean("lembrete"), json.optBoolean("ativa", true), json.optString("notificacao").trim())
     }
 }
 
@@ -156,13 +161,14 @@ class RoutineStore private constructor(private val context: Context) {
 
     fun find(id: String) = routines.firstOrNull { it.id == id }
 
-    fun add(title: String, instruction: String, hour: Int, minute: Int, days: Set<Int>, reminder: Boolean): Routine {
+    fun add(title: String, instruction: String, hour: Int, minute: Int, days: Set<Int>, reminder: Boolean,
+        onNotification: String = ""): Routine {
         require(hour in 0..23 && minute in 0..59) { "Horário inválido." }
         require(title.isNotBlank()) { "Dê um nome à rotina." }
         require(instruction.isNotBlank()) { "Descreva o que a rotina faz." }
         require(routines.size < 30) { "Limite de 30 rotinas." }
         val routine = Routine(UUID.randomUUID().toString().take(8), title.trim().take(60), instruction.trim().take(1500),
-            hour, minute, days, reminder)
+            hour, minute, days, reminder, onNotification = onNotification.trim().take(120))
         routines = routines + routine
         persist()
         RoutineScheduler.schedule(context, routine)
@@ -228,7 +234,7 @@ object RoutineScheduler {
             flags or PendingIntent.FLAG_IMMUTABLE)
 
     fun schedule(context: Context, routine: Routine) {
-        if (!routine.enabled) return
+        if (!routine.enabled || routine.byEvent) return
         val alarms = context.getSystemService(AlarmManager::class.java)
         val at = RoutineSchedule.next(System.currentTimeMillis(), routine.hour, routine.minute, routine.days)
         val intent = pending(context, routine, PendingIntent.FLAG_UPDATE_CURRENT) ?: return
@@ -246,8 +252,21 @@ object RoutineScheduler {
 
     fun scheduleAll(context: Context) = RoutineStore.get(context).routines.forEach { schedule(context, it) }
 
-    fun runNow(context: Context, routine: Routine) {
-        val request = OneTimeWorkRequestBuilder<RoutineWorker>().setInputData(workDataOf("id" to routine.id))
+    private val lastEvent = HashMap<String, Long>()
+
+    /** Disparo por notificação, no máximo uma vez a cada [RoutineTrigger.COOLDOWN_MS] por rotina. */
+    fun runOnEvent(context: Context, routine: Routine, event: String) {
+        val now = System.currentTimeMillis()
+        synchronized(lastEvent) {
+            if (now - (lastEvent[routine.id] ?: 0L) < RoutineTrigger.COOLDOWN_MS) return
+            lastEvent[routine.id] = now
+        }
+        runNow(context, routine, event)
+    }
+
+    fun runNow(context: Context, routine: Routine, event: String? = null) {
+        val request = OneTimeWorkRequestBuilder<RoutineWorker>()
+            .setInputData(if (event != null) workDataOf("id" to routine.id, "evento" to event.take(600)) else workDataOf("id" to routine.id))
         if (!routine.reminder) request.setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
         WorkManager.getInstance(context).enqueue(request.build())
     }
@@ -277,8 +296,9 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     override suspend fun doWork(): Result {
         val context = applicationContext
         val routine = RoutineStore.get(context).find(inputData.getString("id").orEmpty()) ?: return Result.success()
+        val event = inputData.getString("evento")
         if (routine.reminder) {
-            notify(context, routine, routine.instruction)
+            notify(context, routine, routine.instruction + (event?.let { "\n\n$it" } ?: ""))
             return Result.success()
         }
         val tools = AgentTools(context, background = true)
@@ -290,7 +310,8 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 " Você está executando uma rotina agendada, sem conversa: entregue direto o resultado, curto, " +
                 "claro e pronto para ler numa notificação (no máximo 10 linhas), sem perguntas de volta."
             val answer = withContext(Dispatchers.IO) {
-                TextModel.ask(context, "Agora é $now. Rotina \"${routine.title}\": ${routine.instruction}", system + TOOLS_GUIDE,
+                TextModel.ask(context, "Agora é $now. Rotina \"${routine.title}\": ${routine.instruction}" +
+                    (event?.let { "\n\nO que disparou a rotina agora: $it" } ?: ""), system + TOOLS_GUIDE,
                     googleSearch = context.getSharedPreferences("osone_config", 0).getBoolean("google_search", true),
                     readTimeoutMs = 90_000, tools = tools)
             }

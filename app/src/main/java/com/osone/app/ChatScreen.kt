@@ -1,5 +1,17 @@
 package com.osone.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.em
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,12 +42,18 @@ import androidx.compose.ui.unit.dp
 fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Unit, permissionError: Boolean,
     onSettings: () -> Unit, onWriting: () -> Unit, onRoutines: () -> Unit, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
     readAloud: Boolean, onReadAloud: () -> Unit, liveActive: Boolean, onOpenCode: (String, String) -> Unit,
-    onAnswer: (String) -> Unit) {
+    onAnswer: (String) -> Unit, onDictate: () -> Unit = {}) {
     var draft by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
     LaunchedEffect(viewModel.incomingText) {
         viewModel.incomingText?.let { shared -> draft = if (draft.isBlank()) shared else "$draft\n$shared"; viewModel.consumeIncoming() }
+    }
+    LaunchedEffect(viewModel.dictated) {
+        viewModel.dictated?.let { spoken ->
+            draft = listOf(draft.trimEnd(), spoken).filter { it.isNotBlank() }.joinToString(" ")
+            viewModel.consumeDictation()
+        }
     }
     LaunchedEffect(viewModel.messages.size) {
         if (viewModel.messages.isNotEmpty()) scroll.animateScrollToItem(viewModel.messages.lastIndex)
@@ -77,7 +95,10 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
             else LazyColumn(state = scroll, modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(viewModel.messages) { message -> MessageBubble(message.text, message.role == "user", onOpenCode) }
+                itemsIndexed(viewModel.messages) { index, message ->
+                    MessageBubble(message.text, message.role == "user", onOpenCode,
+                        onRetry = if (viewModel.busy) null else ({ viewModel.retry(index, onAnswer) }))
+                }
                 if (viewModel.streamingText.isNotBlank()) item { MessageBubble(viewModel.streamingText, false, null) }
             }
         }
@@ -106,7 +127,8 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
             }
         }
         Composer(draft, { draft = it }, canSend = (draft.isNotBlank() || viewModel.attachment != null) && !viewModel.busy,
-            busy = viewModel.busy, liveActive = liveActive, onAttach = onAttach, onMic = onMic, onSend = send)
+            busy = viewModel.busy, liveActive = liveActive, onAttach = onAttach, onMic = onMic, onSend = send,
+            onStop = viewModel::stopAnswer, onDictate = onDictate)
     }
 }
 
@@ -130,7 +152,10 @@ private fun EmptyChat(onMic: () -> Unit) {
 }
 
 @Composable
-private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, String) -> Unit)?) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, String) -> Unit)?, onRetry: (() -> Unit)? = null) {
+    val context = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top) {
         if (!user) {
@@ -140,10 +165,33 @@ private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, Str
         Surface(color = if (user) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainer,
             contentColor = if (user) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             shape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp),
-            modifier = Modifier.widthIn(max = 320.dp)) {
+            modifier = Modifier.widthIn(max = 320.dp)
+                // Segurar: copiar, compartilhar ou tentar de novo.
+                .combinedClickable(onClick = {}, onLongClick = { menu = true }, onLongClickLabel = "Opções da mensagem")) {
             Column {
                 val linkColor = if (user) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
-                val content = remember(text, linkColor) { linkify(text, linkColor) }
+                val codeColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                val content = remember(text, linkColor, codeColor) {
+                    if (user) linkify(text, linkColor) else renderMarkdown(text, linkColor, codeColor)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    val plain = if (user) text else MarkdownLite.plain(text)
+                    DropdownMenuItem(text = { Text("Copiar") }, leadingIcon = { Icon(OstieIcons.Copy, contentDescription = null) },
+                        onClick = {
+                            menu = false
+                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("OSTIE", plain))
+                            Toast.makeText(context, "Mensagem copiada.", Toast.LENGTH_SHORT).show()
+                        })
+                    DropdownMenuItem(text = { Text("Compartilhar") }, leadingIcon = { Icon(OstieIcons.Send, contentDescription = null) },
+                        onClick = {
+                            menu = false
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_TEXT, plain), "Compartilhar mensagem"))
+                        })
+                    if (onRetry != null) DropdownMenuItem(text = { Text("Tentar de novo") },
+                        leadingIcon = { Icon(OstieIcons.Wave, contentDescription = null) },
+                        onClick = { menu = false; onRetry() })
+                }
                 Text(content, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.bodyLarge)
                 val code = if (user || onOpenCode == null) null else remember(text) { DocumentPreview.codeBlock(text) }
@@ -164,6 +212,34 @@ private fun MessageBubble(text: String, user: Boolean, onOpenCode: ((String, Str
 
 private val urlPattern = Regex("https?://[^\\s)\\]]+")
 
+/** Negrito, itálico, código, títulos e listas das respostas (MarkdownLite), com links tocáveis. */
+private fun renderMarkdown(text: String, linkColor: Color, codeColor: Color): AnnotatedString = buildAnnotatedString {
+    fun segments(list: List<MarkdownLite.Segment>) = list.forEach { segment ->
+        val style = SpanStyle(fontWeight = if (segment.bold) FontWeight.Bold else null,
+            fontStyle = if (segment.italic) FontStyle.Italic else null,
+            fontFamily = if (segment.code) FontFamily.Monospace else null,
+            background = if (segment.code) codeColor else Color.Unspecified)
+        withStyle(style) { append(linkify(segment.text, linkColor)) }
+    }
+    MarkdownLite.parse(text).forEachIndexed { index, line ->
+        if (index > 0) append("\n")
+        when (line.kind) {
+            MarkdownLite.Kind.BLANK -> Unit
+            MarkdownLite.Kind.RULE -> append("———")
+            MarkdownLite.Kind.HEADING -> withStyle(SpanStyle(fontWeight = FontWeight.Bold,
+                fontSize = if (line.level <= 2) 1.15.em else 1.05.em)) { segments(line.segments) }
+            MarkdownLite.Kind.BULLET, MarkdownLite.Kind.NUMBERED -> {
+                append("    ".repeat(line.level) + line.marker + " ")
+                segments(line.segments)
+            }
+            MarkdownLite.Kind.CODE -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeColor)) {
+                append(line.segments.firstOrNull()?.text.orEmpty())
+            }
+            MarkdownLite.Kind.TEXT -> segments(line.segments)
+        }
+    }
+}
+
 /** Links (como as fontes da Pesquisa Google) ficam tocáveis e abrem no navegador. */
 private fun linkify(text: String, color: Color): AnnotatedString = buildAnnotatedString {
     var last = 0
@@ -178,7 +254,7 @@ private fun linkify(text: String, color: Color): AnnotatedString = buildAnnotate
 
 @Composable
 private fun Composer(draft: String, onDraft: (String) -> Unit, canSend: Boolean, busy: Boolean, liveActive: Boolean,
-    onAttach: () -> Unit, onMic: () -> Unit, onSend: () -> Unit) {
+    onAttach: () -> Unit, onMic: () -> Unit, onSend: () -> Unit, onStop: () -> Unit = {}, onDictate: () -> Unit = {}) {
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Row(Modifier.padding(4.dp), verticalAlignment = Alignment.Bottom) {
@@ -192,7 +268,15 @@ private fun Composer(draft: String, onDraft: (String) -> Unit, canSend: Boolean,
                     focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                     disabledContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent))
-            if (canSend || draft.isNotBlank()) {
+            BarIcon(OstieIcons.Mic, "Ditar mensagem", onDictate, enabled = !busy,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (busy) {
+                // Parar: interrompe a resposta; o que já chegou fica na conversa.
+                FilledIconButton(onClick = onStop, shape = CircleShape, modifier = Modifier.padding(4.dp).size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                    Icon(OstieIcons.Close, contentDescription = "Parar resposta", modifier = Modifier.size(20.dp))
+                }
+            } else if (canSend || draft.isNotBlank()) {
                 FilledIconButton(onClick = onSend, enabled = canSend, shape = CircleShape,
                     modifier = Modifier.padding(4.dp).size(48.dp)) {
                     Icon(OstieIcons.Send, contentDescription = "Enviar", modifier = Modifier.size(20.dp))

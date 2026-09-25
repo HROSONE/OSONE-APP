@@ -17,13 +17,16 @@ import java.util.concurrent.atomic.AtomicReference
  * rotinas, memória, mensagens prontas); numa rotina em segundo plano, só o que funciona sem tela aberta,
  * e as ações que precisam do usuário viram botões na notificação ([suggestions]).
  */
-class AgentTools(private val context: Context, private val background: Boolean) {
-    private val phone = PhoneActions(context)
+class AgentTools(private val context: Context, private val background: Boolean,
+    /** Compartilhado entre perguntas do chat: guarda os ids das notificações lidas para responder depois. */
+    private val phone: PhoneActions = PhoneActions(context)) {
     private val local = AndroidLocalTools(context)
     private val main = Handler(Looper.getMainLooper())
     private val knowledge = KnowledgeBase.get(context)
     /** Botões sugeridos por uma rotina (rótulo e tela que abrem), no máximo [MAX_SUGGESTIONS]. */
     val suggestions = ArrayList<Pair<String, Intent>>()
+    /** Botão Parar do chat: ações pedidas depois disso são recusadas. */
+    @Volatile var halted = false
     /** Quantas ferramentas o modelo já pediu (uma rotina que já agiu não é repetida). */
     @Volatile var used = 0
         private set
@@ -45,6 +48,7 @@ class AgentTools(private val context: Context, private val background: Boolean) 
 
     /** Bloqueante: chame fora da thread principal. As ações rodam na principal, como no Live. */
     fun run(name: String, args: JSONObject): JSONObject {
+        if (halted) return JSONObject().put("erro", "O usuário tocou em Parar; não faça mais nada.")
         used++
         if (name == WebSearch.NAME) return await(90) { respond -> WebSearch.run(context, args, respond) }
         if (name == KnowledgeBase.TOOL) return knowledge.search(args)

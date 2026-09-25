@@ -41,6 +41,28 @@ class OstieNotificationListener : NotificationListenerService() {
     }
 
     override fun onListenerConnected() { active = this }
+
+    /** Rotinas "ao chegar notificação": confere cada notificação nova contra os filtros das rotinas. */
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        val item = sbn ?: return
+        if (item.packageName == packageName || item.isOngoing ||
+            (item.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY) != 0) return
+        try {
+            val routines = RoutineStore.get(this).routines.filter { it.enabled && it.onNotification.isNotBlank() }
+            if (routines.isEmpty()) return
+            val app = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(item.packageName, 0)).toString() }
+                catch (_: Exception) { item.packageName }
+            val extras = item.notification.extras
+            val title = extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+            val text = (extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)
+                ?: extras.getCharSequence(android.app.Notification.EXTRA_TEXT))?.toString().orEmpty()
+            routines.filter { RoutineTrigger.matches(it.onNotification, app, title, text) }.forEach { routine ->
+                RoutineScheduler.runOnEvent(this, routine, RoutineTrigger.describe(app, title, text))
+            }
+        } catch (failure: Exception) {
+            AppDiagnostics.get(this).record("Rotina", "Falha ao conferir notificação (${failure.javaClass.simpleName}).")
+        }
+    }
     override fun onListenerDisconnected() { active = null }
     override fun onDestroy() { active = null; super.onDestroy() }
 
@@ -96,8 +118,10 @@ class PhoneActions(private val context: Context) {
             field("titulo", "STRING", "Nome curto"), field("instrucao", "STRING", "O que fazer ou lembrar, detalhado"),
             field("hora", "INTEGER", "Hora 0 a 23"), field("minuto", "INTEGER", "Minuto 0 a 59"),
             field("dias", "STRING", "todos, uteis, fim_de_semana ou lista como seg,qua,sex"),
-            field("tipo", "STRING", "lembrete (texto fixo) ou tarefa (o modelo pesquisa e escreve)")),
-            listOf("titulo", "instrucao", "hora", "minuto")))
+            field("tipo", "STRING", "lembrete (texto fixo) ou tarefa (o modelo pesquisa e escreve)"),
+            field("ao_receber_notificacao", "STRING", "Em vez de horário: dispara quando chegar notificação com estes termos, " +
+                "separados por vírgula (app, pessoa ou palavra; ex.: \"WhatsApp, Ana\" ou \"banco\"). Exige acesso a notificações.")),
+            listOf("titulo", "instrucao")))
         put(tool("list_routines", "Liste as rotinas agendadas.", emptyList()))
         put(tool("delete_routine", "Apague ou pause uma rotina pelo nome ou id.", listOf(
             field("rotina", "STRING", "Nome ou id"), field("acao", "STRING", "apagar, pausar ou ativar")), listOf("rotina")))
@@ -214,14 +238,18 @@ class PhoneActions(private val context: Context) {
             JSONObject().put("resultado", "Nome salvo: $name.")
         }
         "create_routine" -> {
+            val trigger = args.optString("ao_receber_notificacao").trim()
             val routine = RoutineStore.get(context).add(args.optString("titulo"), args.optString("instrucao"),
-                args.optInt("hora", -1), args.optInt("minuto", 0), RoutineSchedule.parseDays(args.optString("dias")),
-                reminder = args.optString("tipo").startsWith("lembr", true))
-            JSONObject().put("resultado", "Rotina \"${routine.title}\" criada: ${routine.timeLabel}, ${routine.daysLabel}.")
+                if (trigger.isNotEmpty()) 0 else args.optInt("hora", -1), args.optInt("minuto", 0),
+                RoutineSchedule.parseDays(args.optString("dias")),
+                reminder = args.optString("tipo").startsWith("lembr", true), onNotification = trigger)
+            JSONObject().put("resultado", "Rotina \"${routine.title}\" criada: ${routine.whenLabel}.")
                 .put("id", routine.id)
+                .apply { if (trigger.isNotEmpty() && !OstieNotificationListener.enabled(context))
+                    put("aviso", "O acesso a notificações está desligado: peça ao usuário para ativar em Notificações no painel do Live.") }
         }
         "list_routines" -> JSONObject().put("rotinas", JSONArray(RoutineStore.get(context).routines.map {
-            JSONObject().put("id", it.id).put("titulo", it.title).put("horario", it.timeLabel).put("dias", it.daysLabel)
+            JSONObject().put("id", it.id).put("titulo", it.title).put("quando", it.whenLabel).put("horario", it.timeLabel).put("dias", it.daysLabel)
                 .put("tipo", if (it.reminder) "lembrete" else "tarefa").put("ativa", it.enabled).put("instrucao", it.instruction.take(200))
         }))
         "delete_routine" -> {

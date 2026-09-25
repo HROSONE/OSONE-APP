@@ -4,30 +4,25 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
+Plano de 25/09/2026 (tarde): itens 1 a 5 feitos na branch (aguardando a janela pública); 6 e 7 ficaram para depois.
 
-- Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
+Lote A — chat
+1. Botão "Parar" enquanto o chat responde.
+2. Segurar uma mensagem: copiar, compartilhar ou tentar de novo.
+3. Formatação no balão (negrito, itálico, listas, títulos) em vez de proibir Markdown; tabelas viram lista.
+4. Ditado por voz no campo do chat (reconhecimento do Android), sem abrir o Live.
 
-Plano "pesquisa e Live" (25/09/2026, feito na branch, aguardando a janela pública):
-
-Lote A — pesquisa
-1. read_url: o OSTIE abre um link dos resultados e lê o texto da página (chat e Live).
-2. Pesquisa mais rápida: cache de 10 min por consulta, espera menor no Gemini e data das páginas nos resultados da API do Google.
-3. Tavily como segunda opção de busca (grátis, 1.000/mês, sem cartão): Google API → Tavily → Gemini.
-4. Fontes na tela do Live: links das pesquisas viram botões que abrem no navegador.
-
-Lote B — Live
-5. Live continua a conversa do chat: as últimas mensagens entram nas instruções ao iniciar.
-6. Status visível enquanto ferramentas rodam ("Pesquisando na web…", "Mexendo no celular…").
-7. Reconexão sem cortar a fala: no aviso de troca de servidor (goAway), espera o fim da frase antes de reconectar.
-
-Engasgos no Live 3.x (investigado): fila de áudio de 96 pedaços descartava rajadas; generationComplete encerrava a fala antes do fim do áudio; sem sensibilidade de voz baixa, o eco cortava a fala. Corrigido na mesma branch; o diagnóstico passa a mostrar "faltas" e "descartes" de áudio ao fim da conversa.
+Lote B — rotinas que reagem
+5. Rotina ao chegar notificação de um app ou pessoa (usa o leitor de notificações que já existe).
+6. Rotina ao ligar o carregador (no máximo uma vez por dia).
+7. Formulário de rotina com o tipo de gatilho (horário, notificação, carregador).
 
 Ideias maiores para depois:
 
 - **Busca que sobreviva a 2027**: o Google encerra a Custom Search JSON API em 01/01/2027. Candidatas grátis sem cartão: Tavily (1.000 créditos/mês) e Exa; Serper tem 2.500 buscas únicas (resultados do Google). `GoogleSearchApi` e `WebSearch` já isolam o provedor.
 
-- **Rotinas por evento**: disparar ao carregar, ao chegar em casa (Wi-Fi) ou ao receber notificação de um app, além do horário.
+- **Rotina ao chegar em casa (Wi-Fi)**: exige permissão de localização para ler o nome da rede.
+- **Pular a busca do Google quando a cota do dia acabar** (o usuário disse que por ora não atrapalha).
 
 ## Feitos
 
@@ -47,3 +42,4 @@ Ideias maiores para depois:
 | 0.15.86 | Agente espera a tela, vê a tela (print), rola até achar, escolhe entre botões repetidos, pede o sim antes de enviar/pagar/apagar, copia e cola, abre painéis rápidos e mostra o histórico de ações |
 | 0.15.88 | Agente mais rápido: tela nova junto com cada ação, sequências de até 10 passos numa chamada, gestos e esperas mais curtos, Live com raciocínio baixo e sem narrar cada passo |
 | 0.15.90 | Chat entende "pesquisa"/"busca na internet" (usa a pergunta anterior), mostra por que a pesquisa falhou e, no Groq com GPT OSS, tenta a pesquisa própria do Groq |
+| 0.15.92 | Ler páginas (read_url), Tavily como segunda busca, cache de 10 min, fontes na tela do Live, Live continua o chat, aviso "Pesquisando…", reconexão sem cortar a fala e correção dos engasgos de voz nos modelos 3.x |
