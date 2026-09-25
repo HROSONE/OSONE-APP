@@ -52,6 +52,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var streamingText by androidx.compose.runtime.mutableStateOf("")
         private set
+    /** Pesquisa na web feita antes da resposta (Groq e OpenRouter, pedidos sobre fatos atuais). */
+    var searching by androidx.compose.runtime.mutableStateOf(false)
+        private set
     var activeModel by androidx.compose.runtime.mutableStateOf<ChatModel?>(null)
         private set
     var activeTextModel by androidx.compose.runtime.mutableStateOf<String?>(null)
@@ -274,8 +277,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
     }
 
-    private fun chatSystem(base: String, canSave: Boolean = false, query: String = "") =
-        base + UserProfile.get(getApplication()).identity(canSave) + memory.promptBlock() +
+    private fun chatSystem(base: String, canSave: Boolean = false, query: String = "", canSearch: Boolean = true) =
+        base + PLAIN_TEXT + FreshInfo.instructions(canSearch = canSearch) + UserProfile.get(getApplication()).identity(canSave) + memory.promptBlock() +
             KnowledgeBase.get(getApplication()).let { it.promptBlock() + it.relevant(query) }
 
     private val agentTools by lazy { AgentTools(getApplication(), background = false) }
@@ -336,7 +339,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                     main.post { if (busy && activeModel == choice) streamingText = partial }
                                 }
                                 TextModel.gemini(key, choice, snapshot, thinkingMode, part,
-                                    chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null, prompt),
+                                    chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null, prompt,
+                                        canSearch = googleSearch),
                                     45_000, googleSearch, tools, searchApi = WebSearch.preferApi(getApplication()),
                                     onDowngrade = { diagnostics.record("Chat Gemini", it) },
                                     onPartial = stream)
@@ -353,16 +357,30 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     var modelId = if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel
                     var retried = false
                     val tools = if (chatTools) agentTools else null
-                    // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa com a chave Gemini, se houver.
-                    val functions = tools?.declarations(webSearch = googleSearch && WebSearch.available(getApplication()))
+                    // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa pela API de busca ou pela chave Gemini.
+                    val canSearch = googleSearch && WebSearch.available(getApplication())
+                    val functions = tools?.declarations(webSearch = canSearch)
+                    // Modelos pequenos (ex.: GPT OSS 20B) respondem de memória antigos fatos "atuais": pesquisa antes.
+                    var request = snapshot
+                    if (canSearch && FreshInfo.needsSearch(prompt)) {
+                        searching = true
+                        val found = try {
+                            withContext(Dispatchers.IO) {
+                                agentTools.run(WebSearch.NAME, org.json.JSONObject().put("consulta", prompt.take(400)))
+                            }
+                        } finally { searching = false }
+                        if (!found.has("erro")) request = snapshot.dropLast(1) +
+                            ChatMessage("user", FreshInfo.withResults(snapshot.last().text, found.toString()))
+                        else diagnostics.record("Chat ${selectedProvider.label}", "Pesquisa antes da resposta falhou; respondendo sem ela.")
+                    }
                     while (true) {
                         val currentLabel = "${selectedProvider.label} · $modelId"
                         activeTextModel = currentLabel
                         try {
                             response = withContext(Dispatchers.IO) {
-                                ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot,
+                                ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, request,
                                     chatSystem(ChatCompletionClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "",
-                                        tools != null, prompt),
+                                        tools != null, prompt, canSearch),
                                     functions = functions, runTool = tools?.let { it::run },
                                     onDowngrade = { diagnostics.record("Chat ${selectedProvider.label}", it) }) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
@@ -426,6 +444,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private companion object {
+        /** O balão do chat mostra texto puro: Markdown apareceria com ** e | soltos. */
+        const val PLAIN_TEXT = " O chat mostra texto simples: não use Markdown (nada de **, #, tabelas ou linhas com |), " +
+            "exceto blocos de código entre ``` quando mostrar código; para listas, use linhas começando com \"• \" e deixe uma linha em branco entre os itens."
         const val TOOLS_GUIDE = " Você tem as ferramentas do app no celular do usuário: alarmes, timers, agenda, contatos, " +
             "mensagens e ligações prontas, rotas, notificações, rotinas agendadas, apps e a sua memória. Use-as quando o " +
             "usuário pedir para agir ou quando precisar dos dados delas, e diga em uma frase o que fez. Mensagens e ligações " +

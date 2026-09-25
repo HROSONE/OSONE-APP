@@ -6,6 +6,11 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
+Na branch, aguardando a próxima janela pública:
+
+- Chat e Live sabem a data de hoje e não apresentam fatos antigos como atuais; Groq/OpenRouter pesquisam na web antes de responder pedidos de notícias, preços, clima etc. (`FreshInfo`); respostas sem Markdown no chat.
+- Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
+
 Ideias maiores para depois:
 
 - **Busca que sobreviva a 2027**: o Google encerra a Custom Search JSON API em 01/01/2027. Candidatas grátis sem cartão: Tavily (1.000 créditos/mês) e Exa; Serper tem 2.500 buscas únicas (resultados do Google). `GoogleSearchApi` e `WebSearch` já isolam o provedor.

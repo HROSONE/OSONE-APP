@@ -285,7 +285,8 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         return try {
             val now = SimpleDateFormat("EEEE, dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())
             val memory = MemoryStore.get(context).apply { refresh() }
-            val system = GeminiClient.DEFAULT_SYSTEM + UserProfile.get(context).identity(canSave = false) + memory.promptBlock() +
+            val system = GeminiClient.DEFAULT_SYSTEM + FreshInfo.instructions(canSearch = true) +
+                UserProfile.get(context).identity(canSave = false) + memory.promptBlock() +
                 " Você está executando uma rotina agendada, sem conversa: entregue direto o resultado, curto, " +
                 "claro e pronto para ler numa notificação (no máximo 10 linhas), sem perguntas de volta."
             val answer = withContext(Dispatchers.IO) {
