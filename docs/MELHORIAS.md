@@ -4,18 +4,10 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 25/09/2026 (tarde): itens 1 a 5 feitos na branch (aguardando a janela pública); 6 e 7 ficaram para depois.
+Do plano de 25/09/2026 (tarde), ficaram:
 
-Lote A — chat
-1. Botão "Parar" enquanto o chat responde.
-2. Segurar uma mensagem: copiar, compartilhar ou tentar de novo.
-3. Formatação no balão (negrito, itálico, listas, títulos) em vez de proibir Markdown; tabelas viram lista.
-4. Ditado por voz no campo do chat (reconhecimento do Android), sem abrir o Live.
-
-Lote B — rotinas que reagem
-5. Rotina ao chegar notificação de um app ou pessoa (usa o leitor de notificações que já existe).
-6. Rotina ao ligar o carregador (no máximo uma vez por dia).
-7. Formulário de rotina com o tipo de gatilho (horário, notificação, carregador).
+- Rotina ao ligar o carregador (no máximo uma vez por dia).
+- Formulário de rotina com o tipo de gatilho (horário, notificação, carregador); hoje as de notificação são criadas pelo chat ou Live.
 
 Ideias maiores para depois:
 
@@ -43,3 +35,4 @@ Ideias maiores para depois:
 | 0.15.88 | Agente mais rápido: tela nova junto com cada ação, sequências de até 10 passos numa chamada, gestos e esperas mais curtos, Live com raciocínio baixo e sem narrar cada passo |
 | 0.15.90 | Chat entende "pesquisa"/"busca na internet" (usa a pergunta anterior), mostra por que a pesquisa falhou e, no Groq com GPT OSS, tenta a pesquisa própria do Groq |
 | 0.15.92 | Ler páginas (read_url), Tavily como segunda busca, cache de 10 min, fontes na tela do Live, Live continua o chat, aviso "Pesquisando…", reconexão sem cortar a fala e correção dos engasgos de voz nos modelos 3.x |
+| 0.15.94 | Chat com botão Parar, menu da mensagem (copiar, compartilhar, tentar de novo), formatação (negrito, listas, títulos) e ditado por voz; rotinas que disparam ao chegar notificação |
