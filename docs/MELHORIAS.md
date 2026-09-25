@@ -8,6 +8,19 @@ Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
+Plano "pesquisa e Live" (25/09/2026, aguardando o ok):
+
+Lote A — pesquisa
+1. read_url: o OSTIE abre um link dos resultados e lê o texto da página (chat e Live).
+2. Pesquisa mais rápida: cache de 10 min por consulta, espera menor no Gemini e data das páginas nos resultados da API do Google.
+3. Tavily como segunda opção de busca (grátis, 1.000/mês, sem cartão): Google API → Tavily → Gemini.
+4. Fontes na tela do Live: links das pesquisas viram botões que abrem no navegador.
+
+Lote B — Live
+5. Live continua a conversa do chat: as últimas mensagens entram nas instruções ao iniciar.
+6. Status visível enquanto ferramentas rodam ("Pesquisando na web…", "Mexendo no celular…").
+7. Reconexão sem cortar a fala: no aviso de troca de servidor (goAway), espera o fim da frase antes de reconectar.
+
 Ideias maiores para depois:
 
 - **Busca que sobreviva a 2027**: o Google encerra a Custom Search JSON API em 01/01/2027. Candidatas grátis sem cartão: Tavily (1.000 créditos/mês) e Exa; Serper tem 2.500 buscas únicas (resultados do Google). `GoogleSearchApi` e `WebSearch` já isolam o provedor.
