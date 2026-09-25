@@ -4,6 +4,21 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
+Plano de 25/09/2026 (noite), aguardando o ok:
+
+Lote A — conversas
+1. Várias conversas: "Nova conversa" guarda a atual; menu com as antigas (título automático), abrir e apagar. Hoje só existe uma, limitada às 100 últimas mensagens.
+2. Busca nas conversas antigas.
+3. Criar imagens no chat ("desenha um gato astronauta") com o modelo de imagem do Gemini, se a chave tiver acesso; salvar na galeria.
+
+Lote B — primeiros passos e Ajustes
+4. Boas-vindas no primeiro uso: colar a chave Gemini (com link) e liberar microfone e notificações em 3 passos.
+5. Ajustes mais fáceis: seções recolhíveis, abertas só as mais usadas.
+6. Cópia de segurança: exportar e importar ajustes, rotinas e base de conhecimento (sem chaves) em Documentos/OSTIE.
+
+Lote C — bateria
+7. Escuta ativa pausa sozinha com bateria abaixo de 15% ou no modo economia, e volta ao carregar.
+
 Do plano de 25/09/2026 (tarde), ficaram:
 
 - Rotina ao ligar o carregador (no máximo uma vez por dia).
