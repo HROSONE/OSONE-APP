@@ -165,6 +165,74 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         searchApiStatus = "API de busca removida; a pesquisa volta a usar o Gemini."
     }
 
+    /** Jev (TypeSafe): só é consultado com a chave salva E o interruptor ligado (começa desligado). */
+    private val jevSecrets = SecureKeyStore(application, JevApi.KEY_SLOT)
+    var jevConfigured by androidx.compose.runtime.mutableStateOf(jevSecrets.read() != null)
+        private set
+    var jevOn by androidx.compose.runtime.mutableStateOf(settings.getBoolean(JevDecisions.PREF, false))
+        private set
+    var jevStatus by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+    var jevTesting by androidx.compose.runtime.mutableStateOf(false)
+        private set
+
+    fun saveJev(key: String): Boolean {
+        val clean = key.trim()
+        if (clean.isEmpty()) { jevStatus = "Cole a chave criada em console.typesafe.ai."; return false }
+        val saved = try { jevSecrets.save(clean) && jevSecrets.read() == clean } catch (_: Exception) { false }
+        jevConfigured = jevSecrets.read() != null
+        jevStatus = if (saved) "Chave do Jev salva. Toque em Testar e depois ligue \"Usar o Jev\"." else "Não foi possível salvar a chave do Jev."
+        return saved
+    }
+
+    fun removeJev() {
+        jevSecrets.clear()
+        jevConfigured = false
+        updateJevOn(false)
+        jevStatus = "Chave do Jev removida; o OSTIE volta às regras de antes."
+    }
+
+    fun updateJevOn(value: Boolean) {
+        jevOn = value
+        settings.edit().putBoolean(JevDecisions.PREF, value).apply()
+    }
+
+    /** O teste manda só uma frase fixa de exemplo, nunca mensagens do usuário. */
+    fun testJev() {
+        val key = jevSecrets.read() ?: run { jevStatus = "Salve a chave do Jev antes de testar."; return }
+        jevTesting = true
+        jevStatus = null
+        viewModelScope.launch {
+            jevStatus = try {
+                val started = System.currentTimeMillis()
+                val answers = withContext(Dispatchers.IO) {
+                    JevApi.ask(key, JevDecisions.chatState(JevDecisions.SAMPLE, null), JevDecisions.chatQuestions(), 10_000)
+                }
+                val search = answers[JevDecisions.SEARCH]?.noul
+                "Jev funcionou em ${System.currentTimeMillis() - started} ms. \"${JevDecisions.SAMPLE}\" precisa de pesquisa: " +
+                    (if (search != null) "${(search * 100).toInt()}%." else "sem resposta.")
+            } catch (failure: JevException) {
+                diagnostics.record("Jev", failure.message.orEmpty())
+                failure.message
+            } catch (failure: Exception) {
+                "Sem conexão com o Jev (${failure.javaClass.simpleName})."
+            } finally { jevTesting = false }
+        }
+    }
+
+    /** Decisão do Jev para o chat; null se desligado, sem chave ou sem resposta a tempo (aí valem só as regras). */
+    private suspend fun jevChatAnswers(message: String, previous: String?): Map<String, JevApi.Answer>? {
+        if (!jevOn) return null
+        val key = jevSecrets.read() ?: return null
+        return withContext(Dispatchers.IO) {
+            try { JevApi.ask(key, JevDecisions.chatState(message, previous), JevDecisions.chatQuestions(), 2_500) }
+            catch (failure: Exception) {
+                diagnostics.record("Jev", (failure as? JevException)?.message ?: "Sem resposta (${failure.javaClass.simpleName}).")
+                null
+            }
+        }
+    }
+
     private val tavilySecrets = SecureKeyStore(application, TavilyApi.KEY_SLOT)
     var tavilyConfigured by androidx.compose.runtime.mutableStateOf(tavilySecrets.read() != null)
         private set
@@ -535,13 +603,15 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     val tools = if (chatTools) sendTools else null
                     // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa pela API de busca ou pela chave Gemini.
                     val canSearch = googleSearch && WebSearch.available(getApplication())
-                    val functions = tools?.declarations(webSearch = canSearch)
+                    val previous = snapshot.dropLast(1).lastOrNull { it.role == "user" }?.text?.removePrefix("Por voz: ")
+                    // Jev ligado em Ajustes: reforça as regras (pesquisa que a regra não pegou, conversa sem ferramentas).
+                    val route = JevDecisions.chatRoute(jevChatAnswers(prompt, previous), FreshInfo.needsSearch(prompt))
+                    val functions = if (route.tools) tools?.declarations(webSearch = canSearch) else null
                     // Modelos pequenos (ex.: GPT OSS 20B) respondem de memória antigos fatos "atuais": pesquisa antes.
                     var request = snapshot
                     var browserSearch = false
-                    if (FreshInfo.needsSearch(prompt)) {
+                    if (route.search) {
                         // "pesquisa" sozinho pesquisa a pergunta anterior do usuário.
-                        val previous = snapshot.dropLast(1).lastOrNull { it.role == "user" }?.text?.removePrefix("Por voz: ")
                         val query = FreshInfo.searchQuery(prompt, previous)
                         val reason: String? = if (!canSearch) {
                             if (!googleSearch) "a pesquisa está desligada em Ajustes > Pesquisa Google"

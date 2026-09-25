@@ -56,9 +56,25 @@ class OstieNotificationListener : NotificationListenerService() {
             val title = extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
             val text = (extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)
                 ?: extras.getCharSequence(android.app.Notification.EXTRA_TEXT))?.toString().orEmpty()
-            routines.filter { RoutineTrigger.matches(it.onNotification, app, title, text) }.forEach { routine ->
-                RoutineScheduler.runOnEvent(this, routine, RoutineTrigger.describe(app, title, text))
+            val event = RoutineTrigger.describe(app, title, text)
+            // Filtro em frase com o Jev ligado: conferido pelo sentido (fora da thread principal); o resto, por palavra.
+            val jevKey = if (getSharedPreferences("osone_config", 0).getBoolean(JevDecisions.PREF, false))
+                SecureKeyStore(this, JevApi.KEY_SLOT).read() else null
+            val (byMeaning, byWord) = routines.partition { jevKey != null && JevDecisions.isMeaningFilter(it.onNotification) }
+            byWord.filter { RoutineTrigger.matches(it.onNotification, app, title, text) }.forEach { routine ->
+                RoutineScheduler.runOnEvent(this, routine, event)
             }
+            if (byMeaning.isNotEmpty() && jevKey != null) Thread({
+                byMeaning.forEach { routine ->
+                    try {
+                        if (JevDecisions.matches(JevApi.ask(jevKey, event, JevDecisions.notificationQuestion(routine.onNotification))))
+                            RoutineScheduler.runOnEvent(this, routine, event)
+                    } catch (failure: Exception) {
+                        AppDiagnostics.get(this).record("Jev", (failure as? JevException)?.message
+                            ?: "Não conferiu a notificação (${failure.javaClass.simpleName}).")
+                    }
+                }
+            }, "ostie-jev").start()
         } catch (failure: Exception) {
             AppDiagnostics.get(this).record("Rotina", "Falha ao conferir notificação (${failure.javaClass.simpleName}).")
         }

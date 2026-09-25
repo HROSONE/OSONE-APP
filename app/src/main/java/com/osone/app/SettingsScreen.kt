@@ -59,6 +59,8 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                 ProviderKeyField(viewModel, ChatProvider.OPENROUTER)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 ProviderKeyField(viewModel, ChatProvider.GROQ)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                JevField(viewModel)
                 viewModel.keyStatus?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall,
                         color = if (viewModel.keySaveError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
@@ -256,6 +258,38 @@ private fun SearchApiFields(viewModel: OsoneViewModel, onChanged: () -> Unit) {
         { viewModel.updateSearchApiFirst(it); onChanged() },
         "Ligado: chat, Live e rotinas pesquisam pela API do Google, depois pela Tavily e, se as duas falharem, pelo Gemini. Desligado: elas só entram quando o Gemini não puder pesquisar.")
     viewModel.searchApiStatus?.let { Hint(it) }
+}
+
+/** Jev (TypeSafe AI): decisões rápidas para o chat e para rotinas de notificação. Chave e interruptor separados. */
+@Composable
+private fun JevField(viewModel: OsoneViewModel) {
+    var key by remember { mutableStateOf("") }
+    val saved = viewModel.jevConfigured
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Jev (TypeSafe)", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(if (saved) "Salva" else "Opcional", style = MaterialTheme.typography.labelMedium,
+            color = if (saved) OstieColors.Success else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Hint("IA que não conversa, só decide, em menos de meio segundo. Crie a chave em console.typesafe.ai.")
+    OutlinedTextField(value = key, onValueChange = { key = it },
+        placeholder = { Text(if (saved) "Cole uma nova chave para substituir" else "Chave do Jev") },
+        visualTransformation = PasswordVisualTransformation(), singleLine = true,
+        shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button(onClick = { if (viewModel.saveJev(key)) key = "" }, enabled = key.isNotBlank()) {
+            Text(if (saved) "Atualizar" else "Salvar")
+        }
+        if (saved) {
+            OutlinedButton(onClick = viewModel::testJev, enabled = !viewModel.jevTesting) {
+                Text(if (viewModel.jevTesting) "Testando…" else "Testar")
+            }
+            TextButton(onClick = viewModel::removeJev) { Text("Remover") }
+        }
+    }
+    if (saved) SettingSwitch("Usar o Jev", viewModel.jevOn, viewModel::updateJevOn,
+        "Ligado, o texto das suas mensagens no chat (Groq e OpenRouter) e das notificações vigiadas por rotinas com filtro em frase " +
+            "vai para a TypeSafe, que decide se precisa pesquisar, se precisa de ações e se a notificação combina. Desligado, nada sai.")
+    viewModel.jevStatus?.let { Hint(it) }
 }
 
 /** Tavily: segunda opção de busca, grátis até 1.000 buscas por mês (chave criada em tavily.com). */
