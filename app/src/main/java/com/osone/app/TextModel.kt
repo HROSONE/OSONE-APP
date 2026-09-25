@@ -31,7 +31,7 @@ object TextModel {
             val model = if (provider == ChatProvider.GROQ) groqModel(context) else openRouterModel(context)
             // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa com a chave Gemini, se houver.
             return ChatCompletionClient().streamAnswer(provider, key, model, history, system, readTimeoutMs,
-                functions = tools?.declarations(webSearch = googleSearch && SecureKeyStore(context).read() != null),
+                functions = tools?.declarations(webSearch = googleSearch && WebSearch.available(context)),
                 runTool = tools?.let { it::run }, onDowngrade = { AppDiagnostics.get(context).record("Modelo de texto", it) },
                 onPartial = onPartial)
         }
@@ -41,7 +41,7 @@ object TextModel {
         for ((index, choice) in choices.withIndex()) {
             try {
                 return gemini(key, choice, history, mode, null, system, readTimeoutMs, googleSearch, tools,
-                    onDowngrade = { AppDiagnostics.get(context).record("Modelo de texto", it) }, onPartial = onPartial)
+                    searchApi = WebSearch.preferApi(context), onDowngrade = { AppDiagnostics.get(context).record("Modelo de texto", it) }, onPartial = onPartial)
             } catch (failure: GeminiHttpException) {
                 if (!failure.allowsFallback || index == choices.lastIndex) throw failure
             }
@@ -55,18 +55,20 @@ object TextModel {
     /**
      * Uma resposta Gemini com as ferramentas do app e a Pesquisa Google. Se o modelo recusar a combinação
      * (HTTP 400), troca a pesquisa embutida pela ferramenta web_search e, por fim, responde sem ferramentas.
+     * Com [searchApi] (API de busca do Google configurada), começa direto pela web_search.
      */
     fun gemini(key: String, model: ChatModel, history: List<ChatMessage>, mode: ThinkingMode, attachment: org.json.JSONObject?,
-        system: String, readTimeoutMs: Int, googleSearch: Boolean, tools: AgentTools?,
+        system: String, readTimeoutMs: Int, googleSearch: Boolean, tools: AgentTools?, searchApi: Boolean = false,
         onDowngrade: (String) -> Unit = {}, onPartial: (String) -> Unit): String {
         val plans = buildList<Pair<Boolean, org.json.JSONArray?>> {
-            if (tools != null) {
+            if (tools != null && googleSearch && searchApi) add(false to tools.declarations(webSearch = true))
+            else if (tools != null) {
                 add(googleSearch to tools.declarations(webSearch = false))
                 if (googleSearch) add(false to tools.declarations(webSearch = true))
             } else if (googleSearch) add(true to null)
             add(false to null)
         }
-        val planKey = "${model.id}:${tools != null}:$googleSearch"
+        val planKey = "${model.id}:${tools != null}:$googleSearch:$searchApi"
         var failure: GeminiHttpException? = null
         for (index in (acceptedPlan[planKey] ?: 0) until plans.size) {
             val (search, functions) = plans[index]

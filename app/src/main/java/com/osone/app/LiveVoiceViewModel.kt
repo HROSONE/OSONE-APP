@@ -326,7 +326,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         connected = false
         active = model
         setupLevel = savedLevel(model)
-        searchAvailable = preferences.getBoolean("google_search", true) && setupLevel < 1
+        // Com a API de busca do Google configurada, o Live pesquisa por ela (web_search) em vez da pesquisa embutida.
+        searchAvailable = preferences.getBoolean("google_search", true) && setupLevel < 1 &&
+            !WebSearch.preferApi(getApplication())
         extrasAvailable = setupLevel < 2
         extendedTools = setupLevel < 3
         localToolsAvailable = setupLevel < 4
@@ -374,7 +376,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                                 val direct = phoneActions.declarations()
                                 for (i in 0 until direct.length()) list.put(direct.get(i))
                             }
-                            // Sem a pesquisa embutida (ex.: cota do Live 3.x), pesquisa pelo modelo de texto.
+                            // Sem a pesquisa embutida (cota do Live 3.x ou API de busca preferida), usa web_search.
                             if (!searchAvailable && preferences.getBoolean("google_search", true)) list.put(WebSearch.declaration())
                             if (knowledge.active && knowledge.sources.isNotEmpty()) list.put(knowledge.toolDeclaration())
                         }))

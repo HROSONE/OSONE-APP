@@ -18,8 +18,11 @@ Programado na branch `claude/aprimorar-71toz4` (lotes 1, 2 e 3 do plano de 25/09
 10. Widget na tela inicial: botão Falar e próxima rotina (abre a aba Rotinas).
 11. Testes de tela do Live (relógio manual por causa do orbe) e dos Ajustes, e da edição de rotina.
 12. Aba de Escrita com campo de pedido: o modelo de texto escreve algo novo ou altera só o que foi pedido no documento atual; botão "Desfazer" (também depois de apagar).
+13. API de busca do Google (Custom Search: chave do Cloud Console + cx) em Ajustes > Pesquisa Google, com botão Testar; chat, Live e rotinas pesquisam por ela e usam o Gemini se ela falhar.
 
 Ideias maiores para depois:
+
+- **Busca que sobreviva a 2027**: o Google encerra a Custom Search JSON API em 01/01/2027. Candidatas grátis sem cartão: Tavily (1.000 créditos/mês) e Exa; Serper tem 2.500 buscas únicas (resultados do Google). `GoogleSearchApi` e `WebSearch` já isolam o provedor.
 
 - **Rotinas por evento**: disparar ao carregar, ao chegar em casa (Wi-Fi) ou ao receber notificação de um app, além do horário.
 
