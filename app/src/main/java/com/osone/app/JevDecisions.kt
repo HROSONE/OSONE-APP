@@ -8,6 +8,10 @@ package com.osone.app
  * Lógica pura, testável na JVM.
  */
 object JevDecisions {
+    /** Interruptor em Ajustes: sem ele ligado, nada vai para a TypeSafe (mesmo com a chave salva). */
+    const val PREF = "jev_on"
+    /** Frase fixa do botão Testar (nunca uma mensagem do usuário). */
+    const val SAMPLE = "Quanto está o dólar hoje?"
     const val SEARCH = "pesquisa"
     const val ACTION = "acao"
     const val MATCH = "combina"

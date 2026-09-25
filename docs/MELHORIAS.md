@@ -4,6 +4,8 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
+Na branch, aguardando a próxima janela pública: integração com o Jev (TypeSafe AI), com chave e interruptor em Ajustes > Chaves de API. Conferir o formato da API com a chave real (montado a partir de exemplos de terceiros).
+
 Do plano de 25/09/2026 (tarde), ficaram:
 
 - Rotina ao ligar o carregador (no máximo uma vez por dia).
