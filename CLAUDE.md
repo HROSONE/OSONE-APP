@@ -9,7 +9,7 @@ Converse com o usuário em português do Brasil, em linguagem simples. Para melh
 - `MainActivity.kt`: navegação entre telas, permissões e intents.
 - Telas: `ChatScreen`, `LiveScreen` (painel do Live), `WritingScreen`, `RoutinesScreen`, `SettingsScreen`; componentes e tema em `OstieUi.kt`, ícones em `OstieIcons.kt`.
 - Live: `LiveVoiceViewModel` (setup, níveis de configuração adaptativos, retomada, legendas, ferramentas), `LiveAudioEngine` + `EchoCalibration` (áudio e eco), `LiveModels`, `LiveCloseReason`, `LiveExtras` (web_search e transcrição para o chat), `LiveSessionService`.
-- Texto: `GeminiClient` (SSE, pesquisa Google, chamadas de função em laço), `ChatCompletionClient`, `TextModel` (modelo "cérebro" e combinações de ferramentas), `OsoneViewModel` (chat).
+- Texto: `GeminiClient` (SSE, pesquisa Google, chamadas de função em laço), `ChatCompletionClient` (Groq e OpenRouter, também com ferramentas; formato em `OpenAiTools`), `TextModel` (modelo "cérebro" e combinações de ferramentas), `OsoneViewModel` (chat).
 - Ações: `PhoneActions` (intents diretas), `AndroidLocalTools` (apps, ajustes, acessibilidade), `AgentTools` (ferramentas para chat e rotinas).
 - Memória e rotinas: `MemoryStore`, `MemoryOrganizer`, `Routines`, `UserProfile`.
 - Atualização: `AppUpdater` (`UpdateFeed`), `UpdateWork`.

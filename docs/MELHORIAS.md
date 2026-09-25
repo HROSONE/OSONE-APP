@@ -6,7 +6,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Plano da sessão de 25/09/2026 (da mais valiosa para a menos), em lotes de um PR cada:
 
-**Lote 1 — o OSTIE age com qualquer "cérebro"**
+**Lote 1 — o OSTIE age com qualquer "cérebro"** (programado na branch `claude/aprimorar-71toz4`; falta compilar na CI e publicar quando os minutos do Actions voltarem)
 1. Ações no chat escrito com Groq e OpenRouter: chamadas de ferramenta no formato OpenAI (streaming), laço de até 5 rodadas, conversão do esquema Gemini para JSON Schema e volta sem ferramentas se o modelo recusar.
 2. Rotinas com Groq/OpenRouter também leem agenda e notificações e deixam botões na notificação (hoje só o Gemini usa ferramentas nelas).
 3. Rotina que falha depois de usar uma ferramenta não é repetida (evita anotar duas vezes na memória).

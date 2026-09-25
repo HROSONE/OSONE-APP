@@ -244,13 +244,13 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             notify(context, routine, routine.instruction)
             return Result.success()
         }
+        val tools = AgentTools(context, background = true)
         return try {
             val now = SimpleDateFormat("EEEE, dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())
             val memory = MemoryStore.get(context).apply { refresh() }
             val system = GeminiClient.DEFAULT_SYSTEM + UserProfile.get(context).identity(canSave = false) + memory.promptBlock() +
                 " Você está executando uma rotina agendada, sem conversa: entregue direto o resultado, curto, " +
                 "claro e pronto para ler numa notificação (no máximo 10 linhas), sem perguntas de volta."
-            val tools = AgentTools(context, background = true)
             val answer = withContext(Dispatchers.IO) {
                 TextModel.ask(context, "Agora é $now. Rotina \"${routine.title}\": ${routine.instruction}", system + TOOLS_GUIDE,
                     googleSearch = context.getSharedPreferences("osone_config", 0).getBoolean("google_search", true),
@@ -260,7 +260,8 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             RoutineStore.get(context).pushInbox(routine.title, answer)
             Result.success()
         } catch (failure: Exception) {
-            if (runAttemptCount < 2) return Result.retry()
+            // Depois de usar ferramentas (ex.: anotar na memória), repetir faria tudo de novo.
+            if (runAttemptCount < 2 && tools.used == 0) return Result.retry()
             AppDiagnostics.get(context).record("Rotina", "${routine.title}: ${failure.javaClass.simpleName}.")
             notify(context, routine, "Não consegui executar agora (${failure.message?.take(80) ?: "falha de rede"}).")
             Result.success()

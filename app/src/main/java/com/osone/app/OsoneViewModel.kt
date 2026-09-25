@@ -214,7 +214,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
 
     private val agentTools by lazy { AgentTools(getApplication(), background = false) }
 
-    /** Ferramentas do app (alarmes, agenda, rotinas, memória, mensagens) também no chat escrito com Gemini. */
+    /** Ferramentas do app (alarmes, agenda, rotinas, memória, mensagens) também no chat escrito, com qualquer provedor. */
     var chatTools by androidx.compose.runtime.mutableStateOf(settings.getBoolean("chat_tools", true))
         private set
 
@@ -285,13 +285,19 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     var modelId = if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel
                     var retried = false
+                    val tools = if (chatTools) agentTools else null
+                    // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa com a chave Gemini, se houver.
+                    val functions = tools?.declarations(webSearch = googleSearch && secrets.read() != null)
                     while (true) {
                         val currentLabel = "${selectedProvider.label} · $modelId"
                         activeTextModel = currentLabel
                         try {
                             response = withContext(Dispatchers.IO) {
                                 ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot,
-                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM, query = prompt)) { partial ->
+                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "",
+                                        tools != null, prompt),
+                                    functions = functions, runTool = tools?.let { it::run },
+                                    onDowngrade = { diagnostics.record("Chat ${selectedProvider.label}", it) }) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
                                 }
                             }

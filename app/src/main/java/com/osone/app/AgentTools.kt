@@ -24,6 +24,9 @@ class AgentTools(private val context: Context, private val background: Boolean) 
     private val knowledge = KnowledgeBase.get(context)
     /** Botões sugeridos por uma rotina (rótulo e tela que abrem), no máximo [MAX_SUGGESTIONS]. */
     val suggestions = ArrayList<Pair<String, Intent>>()
+    /** Quantas ferramentas o modelo já pediu (uma rotina que já agiu não é repetida). */
+    @Volatile var used = 0
+        private set
 
     fun declarations(webSearch: Boolean): JSONArray {
         val list = JSONArray()
@@ -40,6 +43,7 @@ class AgentTools(private val context: Context, private val background: Boolean) 
 
     /** Bloqueante: chame fora da thread principal. As ações rodam na principal, como no Live. */
     fun run(name: String, args: JSONObject): JSONObject {
+        used++
         if (name == WebSearch.NAME) return await(90) { respond -> WebSearch.run(context, args, respond) }
         if (name == KnowledgeBase.TOOL) return knowledge.search(args)
         if (background) {

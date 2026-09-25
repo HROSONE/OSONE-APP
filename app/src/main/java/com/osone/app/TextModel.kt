@@ -29,7 +29,11 @@ object TextModel {
         val history = listOf(ChatMessage("user", prompt))
         if (provider != ChatProvider.GEMINI) {
             val model = if (provider == ChatProvider.GROQ) groqModel(context) else openRouterModel(context)
-            return ChatCompletionClient().streamAnswer(provider, key, model, history, system, readTimeoutMs, onPartial)
+            // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa com a chave Gemini, se houver.
+            return ChatCompletionClient().streamAnswer(provider, key, model, history, system, readTimeoutMs,
+                functions = tools?.declarations(webSearch = googleSearch && SecureKeyStore(context).read() != null),
+                runTool = tools?.let { it::run }, onDowngrade = { AppDiagnostics.get(context).record("Modelo de texto", it) },
+                onPartial = onPartial)
         }
         val selected = ChatModel.fromId(preferences.getString("model", null))
         val mode = ThinkingMode.fromValue(preferences.getString("thinking_mode", null))

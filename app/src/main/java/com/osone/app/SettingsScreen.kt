@@ -83,7 +83,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     Hint("Ligue o alto-falante no topo do chat para ouvir as respostas. Usa a chave Gemini; se ela falhar, a voz do Android lê no lugar.")
                 }
                 SettingSwitch("Ações no chat escrito", viewModel.chatTools, viewModel::updateChatTools,
-                    "Com Gemini, o chat cria alarmes, rotinas e anotações, lê a agenda e as notificações e prepara mensagens, como no Live.")
+                    "O chat cria alarmes, rotinas e anotações, lê a agenda e as notificações e prepara mensagens, como no Live. No Groq e no OpenRouter, depende de o modelo aceitar ferramentas; se não aceitar, ele só responde.")
                 when (viewModel.provider) {
                     ChatProvider.GEMINI -> {
                         OptionPicker("Modelo", viewModel.selectedModel.label, ChatModel.entries, { it.label }, viewModel::selectModel)
