@@ -8,7 +8,7 @@ Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
-Plano "pesquisa e Live" (25/09/2026, aguardando o ok):
+Plano "pesquisa e Live" (25/09/2026, feito na branch, aguardando a janela pública):
 
 Lote A — pesquisa
 1. read_url: o OSTIE abre um link dos resultados e lê o texto da página (chat e Live).
@@ -20,6 +20,8 @@ Lote B — Live
 5. Live continua a conversa do chat: as últimas mensagens entram nas instruções ao iniciar.
 6. Status visível enquanto ferramentas rodam ("Pesquisando na web…", "Mexendo no celular…").
 7. Reconexão sem cortar a fala: no aviso de troca de servidor (goAway), espera o fim da frase antes de reconectar.
+
+Engasgos no Live 3.x (investigado): fila de áudio de 96 pedaços descartava rajadas; generationComplete encerrava a fala antes do fim do áudio; sem sensibilidade de voz baixa, o eco cortava a fala. Corrigido na mesma branch; o diagnóstico passa a mostrar "faltas" e "descartes" de áudio ao fim da conversa.
 
 Ideias maiores para depois:
 

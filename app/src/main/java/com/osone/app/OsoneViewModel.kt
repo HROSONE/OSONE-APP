@@ -163,6 +163,43 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         searchApiStatus = "API de busca removida; a pesquisa volta a usar o Gemini."
     }
 
+    private val tavilySecrets = SecureKeyStore(application, TavilyApi.KEY_SLOT)
+    var tavilyConfigured by androidx.compose.runtime.mutableStateOf(tavilySecrets.read() != null)
+        private set
+
+    fun saveTavily(key: String): Boolean {
+        val clean = key.trim()
+        if (clean.isEmpty()) { searchApiStatus = "Cole a chave da Tavily (começa com tvly-)."; return false }
+        val saved = try { tavilySecrets.save(clean) && tavilySecrets.read() == clean } catch (_: Exception) { false }
+        tavilyConfigured = tavilySecrets.read() != null
+        searchApiStatus = if (saved) "Chave da Tavily salva. Toque em Testar para conferir." else "Não foi possível salvar a chave da Tavily."
+        return saved
+    }
+
+    fun removeTavily() {
+        tavilySecrets.clear()
+        tavilyConfigured = false
+        searchApiStatus = "Chave da Tavily removida."
+    }
+
+    fun testTavily() {
+        val key = tavilySecrets.read() ?: run { searchApiStatus = "Salve a chave da Tavily antes de testar."; return }
+        searchApiTesting = true
+        searchApiStatus = null
+        viewModelScope.launch {
+            searchApiStatus = try {
+                val result = withContext(Dispatchers.IO) { TavilyApi.search(key, "previsão do tempo hoje", 3) }
+                val count = result.optJSONArray("resultados")?.length() ?: 0
+                if (count > 0) "Tavily funcionou: $count resultados." else "A Tavily respondeu, mas sem resultados."
+            } catch (failure: GoogleSearchException) {
+                diagnostics.record("Busca Tavily", failure.message.orEmpty())
+                failure.message
+            } catch (failure: Exception) {
+                "Sem conexão com a Tavily (${failure.javaClass.simpleName})."
+            } finally { searchApiTesting = false }
+        }
+    }
+
     fun updateSearchApiFirst(value: Boolean) {
         searchApiFirst = value
         settings.edit().putBoolean(WebSearch.PREFER_API, value).apply()

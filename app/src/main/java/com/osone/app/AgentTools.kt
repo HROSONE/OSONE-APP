@@ -37,6 +37,8 @@ class AgentTools(private val context: Context, private val background: Boolean) 
             .takeIf { it.optString("name") in (if (background) BACKGROUND_LOCAL else CHAT_LOCAL) }?.let { list.put(it) }
         if (background) list.put(suggestDeclaration())
         if (webSearch) list.put(WebSearch.declaration())
+        // Ler um link não depende de chave: vale também com a Pesquisa Google embutida do Gemini.
+        list.put(WebPage.declaration())
         if (knowledge.active && knowledge.sources.isNotEmpty()) list.put(knowledge.toolDeclaration())
         return list
     }
@@ -46,6 +48,7 @@ class AgentTools(private val context: Context, private val background: Boolean) 
         used++
         if (name == WebSearch.NAME) return await(90) { respond -> WebSearch.run(context, args, respond) }
         if (name == KnowledgeBase.TOOL) return knowledge.search(args)
+        if (name == WebPage.NAME) return WebPage.read(args.optString("url"))
         if (background) {
             if (name == SUGGEST) return suggest(args)
             if (name !in BACKGROUND && name !in BACKGROUND_LOCAL) return JSONObject().put("erro", "Ação indisponível numa rotina.")

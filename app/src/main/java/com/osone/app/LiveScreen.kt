@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -105,6 +106,18 @@ fun LiveScreen(live: LiveVoiceViewModel, codeAuthor: CodeAuthor, diagnostics: Ap
             note?.let {
                 Spacer(Modifier.height(4.dp))
                 Hint(it, if (!live.connected && live.attempts.isNotEmpty()) colors.error else colors.onSurfaceVariant)
+            }
+            live.working?.let { work ->
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(work, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                }
+            }
+            if (live.sources.isNotEmpty()) SourceChips(live.sources) { url ->
+                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) { }
             }
             if (live.captions && (live.captionUser.isNotBlank() || live.captionModel.isNotBlank())) Captions(live)
             ShareStatus(live, clock)
@@ -397,6 +410,20 @@ private fun AgentHistory() {
             Text("${format.format(entry.at)} · ${entry.action}${if (entry.detail.isNotBlank()) " " + entry.detail else ""}" +
                 if (entry.ok) "" else " (falhou)",
                 style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Fontes das últimas pesquisas: um toque abre o link no navegador. */
+@Composable
+private fun SourceChips(sources: List<Pair<String, String>>, onOpen: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("Fontes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        sources.forEach { (title, url) ->
+            AssistChip(onClick = { onOpen(url) }, label = {
+                Text(title.take(32), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            })
         }
     }
 }

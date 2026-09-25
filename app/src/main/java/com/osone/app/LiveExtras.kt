@@ -29,11 +29,22 @@ object WebSearch {
     fun configured(context: Context): Boolean =
         preferences(context).getString(CX, null).orEmpty().isNotBlank() && SecureKeyStore(context, KEY_SLOT).read() != null
 
-    /** A API de busca substitui a Pesquisa Google embutida do Gemini (Live e chat usam web_search). */
-    fun preferApi(context: Context): Boolean = configured(context) && preferences(context).getBoolean(PREFER_API, true)
+    /** Chave da Tavily salva. */
+    fun tavily(context: Context): Boolean = SecureKeyStore(context, TavilyApi.KEY_SLOT).read() != null
+
+    /** Alguma API de busca (Google ou Tavily) substitui a Pesquisa Google embutida do Gemini (Live e chat usam web_search). */
+    fun preferApi(context: Context): Boolean =
+        (configured(context) || tavily(context)) && preferences(context).getBoolean(PREFER_API, true)
 
     /** Há como pesquisar: API de busca ou chave Gemini. */
-    fun available(context: Context): Boolean = configured(context) || SecureKeyStore(context).read() != null
+    fun available(context: Context): Boolean = configured(context) || tavily(context) || SecureKeyStore(context).read() != null
+
+    /** Resultados recentes (10 min): a mesma pergunta no Live e no chat não gasta outra busca. */
+    private val cache = object : LinkedHashMap<String, Pair<Long, JSONObject>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, JSONObject>>?) = size > 30
+    }
+
+    private fun cacheKey(query: String) = query.lowercase().replace(Regex("\\s+"), " ").trim()
 
     fun declaration(): JSONObject = JSONObject()
         .put("name", NAME)
@@ -48,6 +59,9 @@ object WebSearch {
     fun run(context: Context, args: JSONObject, respond: (JSONObject) -> Unit) {
         val query = args.optString("consulta").trim().take(500)
         if (query.isEmpty()) { respond(JSONObject().put("erro", "Informe o que pesquisar.")); return }
+        synchronized(cache) {
+            cache[cacheKey(query)]?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }
+        }?.let { respond(JSONObject(it.second.toString())); return }
         Thread({
             val diagnostics = AppDiagnostics.get(context)
             var result: JSONObject? = null
@@ -63,8 +77,20 @@ object WebSearch {
                     diagnostics.record("Busca Google", reason)
                 }
             }
+            if (result == null && tavily(context)) {
+                try {
+                    result = TavilyApi.search(SecureKeyStore(context, TavilyApi.KEY_SLOT).read().orEmpty(), query)
+                } catch (failure: Exception) {
+                    val reason = if (failure is GoogleSearchException) failure.message.orEmpty()
+                        else "sem conexão com a Tavily (${failure.javaClass.simpleName})"
+                    reasons += reason
+                    diagnostics.record("Busca Tavily", reason)
+                }
+            }
+            result?.let { found -> synchronized(cache) { cache[cacheKey(query)] = System.currentTimeMillis() to found } }
             respond(result ?: try {
                 JSONObject().put("resultado", gemini(context, query).take(3_000))
+                    .also { found -> synchronized(cache) { cache[cacheKey(query)] = System.currentTimeMillis() to found } }
             } catch (failure: Exception) {
                 val reason = when {
                     failure is GeminiHttpException && failure.status == 429 -> "a cota de pesquisa do Gemini acabou por hoje"
@@ -83,12 +109,13 @@ object WebSearch {
 
     private fun gemini(context: Context, query: String): String {
         val key = SecureKeyStore(context).read() ?: error("Chave Gemini não configurada.")
-        val choices = ChatModel.candidates(ChatModel.fromId(preferences(context).getString("model", null)), true)
+        // No máximo 3 modelos: cada tentativa que falha deixa o usuário esperando.
+        val choices = ChatModel.candidates(ChatModel.fromId(preferences(context).getString("model", null)), true).take(3)
         var lastError: Exception? = null
         for (choice in choices) {
             try {
                 return GeminiClient().streamAnswer(key, choice, listOf(ChatMessage("user", "Pesquise na web: $query")),
-                    ThinkingMode.FAST, null, SYSTEM, 60_000, googleSearch = true) { }
+                    ThinkingMode.FAST, null, SYSTEM, 25_000, googleSearch = true) { }
             } catch (failure: GeminiHttpException) {
                 // 400 = modelo sem pesquisa; 404/429/5xx = indisponível ou sem cota: tenta o próximo.
                 lastError = failure

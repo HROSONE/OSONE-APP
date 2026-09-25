@@ -46,11 +46,19 @@ object GoogleSearchApi {
             val link = item.optString("link")
             if (link.isBlank()) continue
             results.put(JSONObject().put("titulo", item.optString("title").take(200))
-                .put("link", link).put("trecho", item.optString("snippet").replace("\n", " ").take(400)))
+                .put("link", link).put("trecho", item.optString("snippet").replace("\n", " ").take(400))
+                .apply { published(item)?.let { put("data", it) } })
         }
         return if (results.length() == 0) JSONObject().put("resultado", "Nada encontrado para esta busca.")
             else JSONObject().put("resultados", results)
                 .put("instrucao", "Responda com base nestes resultados e cite as fontes (título e link) que usar.")
+    }
+
+    /** Data de publicação (AAAA-MM-DD) quando a página informa nas metatags: ajuda a separar notícia nova de velha. */
+    private fun published(item: JSONObject): String? {
+        val tags = item.optJSONObject("pagemap")?.optJSONArray("metatags")?.optJSONObject(0) ?: return null
+        return listOf("article:published_time", "og:updated_time", "article:modified_time", "date", "pubdate")
+            .map { tags.optString(it) }.firstOrNull { Regex("^\\d{4}-\\d{2}-\\d{2}").containsMatchIn(it) }?.take(10)
     }
 
     /** Mensagem clara para Ajustes e diagnóstico, a partir do código e do motivo que o Google devolve. */

@@ -1,6 +1,7 @@
 package com.osone.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatContextTest {
@@ -27,5 +28,14 @@ class ChatContextTest {
         assertEquals(history.last(), window.last())
         assertEquals(11, window.size)
         assertEquals(emptyList<ChatMessage>(), ChatContext.window(emptyList(), 100, 10))
+    }
+
+    @Test fun recapFormatsRecentTurnsForLive() {
+        assertEquals("", ChatContext.recap(emptyList()))
+        val recap = ChatContext.recap(listOf(ChatMessage("user", "Qual a capital da Austrália?"),
+            ChatMessage("model", "Canberra."), ChatMessage("user", "Por voz: e a população?")))
+        assertTrue(recap.contains("Usuário: Qual a capital da Austrália?"))
+        assertTrue(recap.contains("OSTIE: Canberra."))
+        assertTrue(recap.contains("Usuário: e a população?"))
     }
 }
