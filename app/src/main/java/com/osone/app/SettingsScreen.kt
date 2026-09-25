@@ -242,10 +242,40 @@ private fun SearchApiFields(viewModel: OsoneViewModel, onChanged: () -> Unit) {
             TextButton(onClick = { viewModel.removeSearchApi(); onChanged() }) { Text("Remover") }
         }
     }
-    if (saved) SettingSwitch("Usar no lugar da pesquisa do Gemini", viewModel.searchApiFirst,
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    TavilyField(viewModel, onChanged)
+    if (saved || viewModel.tavilyConfigured) SettingSwitch("Usar no lugar da pesquisa do Gemini", viewModel.searchApiFirst,
         { viewModel.updateSearchApiFirst(it); onChanged() },
-        "Ligado: chat, Live e rotinas pesquisam por esta API (e usam o Gemini se ela falhar). Desligado: ela só entra quando o Gemini não puder pesquisar.")
+        "Ligado: chat, Live e rotinas pesquisam pela API do Google, depois pela Tavily e, se as duas falharem, pelo Gemini. Desligado: elas só entram quando o Gemini não puder pesquisar.")
     viewModel.searchApiStatus?.let { Hint(it) }
+}
+
+/** Tavily: segunda opção de busca, grátis até 1.000 buscas por mês (chave criada em tavily.com). */
+@Composable
+private fun TavilyField(viewModel: OsoneViewModel, onChanged: () -> Unit) {
+    var key by remember { mutableStateOf("") }
+    val saved = viewModel.tavilyConfigured
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Tavily", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(if (saved) "Salva" else "Opcional", style = MaterialTheme.typography.labelMedium,
+            color = if (saved) OstieColors.Success else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Hint("Grátis até 1.000 buscas por mês, sem cartão: crie a conta em tavily.com e cole a chave (tvly-…). Entra se a busca do Google falhar ou acabar.")
+    OutlinedTextField(value = key, onValueChange = { key = it },
+        placeholder = { Text(if (saved) "Cole uma nova chave para substituir" else "Chave da Tavily") },
+        visualTransformation = PasswordVisualTransformation(), singleLine = true,
+        shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button(onClick = { if (viewModel.saveTavily(key)) { key = ""; onChanged() } }, enabled = key.isNotBlank()) {
+            Text(if (saved) "Atualizar" else "Salvar")
+        }
+        if (saved) {
+            OutlinedButton(onClick = viewModel::testTavily, enabled = !viewModel.searchApiTesting) {
+                Text(if (viewModel.searchApiTesting) "Testando…" else "Testar")
+            }
+            TextButton(onClick = { viewModel.removeTavily(); onChanged() }) { Text("Remover") }
+        }
+    }
 }
 
 @Composable

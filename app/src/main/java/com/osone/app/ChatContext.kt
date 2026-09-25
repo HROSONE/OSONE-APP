@@ -24,4 +24,15 @@ object ChatContext {
         while (start < history.lastIndex && history[start].role != "user") start++
         return history.subList(start, history.size)
     }
+
+    /** Resumo das últimas mensagens do chat para o Live continuar a conversa (vazio se não houver). */
+    fun recap(history: List<ChatMessage>, maxChars: Int = 3_000, maxMessages: Int = 8): String {
+        val recent = window(history, maxChars, maxMessages)
+        if (recent.isEmpty()) return ""
+        val lines = recent.joinToString("\n") { message ->
+            (if (message.role == "user") "Usuário: " else "OSTIE: ") + message.text.removePrefix("Por voz: ")
+                .replace(Regex("\\s+"), " ").trim().let { if (it.length > 400) it.take(400) + "…" else it }
+        }
+        return "\n\nConversa recente no chat escrito (continue dela se o usuário se referir a algo dito lá; não repita):\n$lines"
+    }
 }

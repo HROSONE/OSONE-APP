@@ -19,13 +19,15 @@ class GoogleSearchApiTest {
 
     @Test fun parsesItemsIntoShortResults() {
         val body = JSONObject().put("items", JSONArray()
-            .put(JSONObject().put("title", "Previsão").put("link", "https://clima.example/sp").put("snippet", "Sol\ne 28 °C"))
+            .put(JSONObject().put("title", "Previsão").put("link", "https://clima.example/sp").put("snippet", "Sol\ne 28 °C")
+                .put("pagemap", JSONObject().put("metatags", JSONArray().put(JSONObject().put("article:published_time", "2026-09-25T08:00:00-03:00")))))
             .put(JSONObject().put("title", "Sem link"))).toString()
         val result = GoogleSearchApi.parse(body)
         val list = result.getJSONArray("resultados")
         assertEquals(1, list.length())
         assertEquals("https://clima.example/sp", list.getJSONObject(0).getString("link"))
         assertEquals("Sol e 28 °C", list.getJSONObject(0).getString("trecho"))
+        assertEquals("2026-09-25", list.getJSONObject(0).getString("data"))
         assertTrue(result.has("instrucao"))
         assertTrue(GoogleSearchApi.parse("{}").has("resultado"))
     }

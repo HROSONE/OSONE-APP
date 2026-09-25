@@ -114,6 +114,19 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var saveTranscript by mutableStateOf(preferences.getBoolean("live_save_transcript", true))
         private set
+    /** Links usados nas últimas pesquisas (título, endereço), mostrados como botões na tela do Live. */
+    var sources by mutableStateOf<List<Pair<String, String>>>(emptyList())
+        private set
+    /** O que o OSTIE está fazendo enquanto uma ferramenta roda ("Pesquisando na web…"); nulo = nada. */
+    var working by mutableStateOf<String?>(null)
+        private set
+    private var pendingTools = 0
+    /** O servidor avisou que vai trocar (goAway): reconecta no fim da fala, sem cortar a frase. */
+    private var reconnectAfterTurn = false
+    /** O modelo está no meio de uma resposta (desde o primeiro áudio até turnComplete). */
+    @Volatile private var modelTurnOpen = false
+    /** Últimas mensagens do chat escrito, lidas ao iniciar a chamada (o Live continua a conversa). */
+    private var chatRecap = ""
     private val turnUser = StringBuilder()
     private val turnModel = StringBuilder()
     private var readyAt = 0L
@@ -224,6 +237,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         running = true
         candidates = LiveModel.candidates(selected, fallback, models)
         resumeHandle = null; resumeModel = null // Nova chamada = nova conversa.
+        sources = emptyList(); working = null; pendingTools = 0; reconnectAfterTurn = false
+        chatRecap = ChatContext.recap(ConversationStore(getApplication()).read())
         captionUser = ""; captionModel = ""; turnUser.setLength(0); turnModel.setLength(0)
         // Atualiza a lista de modelos da chave em segundo plano (no máximo 1x por dia).
         if (System.currentTimeMillis() - preferences.getLong("live_models_at", 0L) > 24 * 3600_000L) refreshModels()
@@ -307,6 +322,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun stop() {
         running = false
+        working = null; pendingTools = 0; reconnectAfterTurn = false
         ready = false
         connected = false
         active = null
@@ -363,7 +379,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             .put("text", "Você é OSTIE, assistente pessoal no Android. Converse naturalmente em português brasileiro. Quando o usuário pedir um texto escrito para a Aba de Escrita, escreva o conteúdo integral usando write_document e então diga que está disponível para editar, copiar ou visualizar. Quando ele pedir código, HTML, SVG, página, jogo ou app, NÃO escreva o código de imediato: primeiro chame request_code com um pedido detalhado (tudo o que ele pediu: funções, estilo, cores, textos) e siga exatamente o resultado. Se o resultado disser que ele escolheu o modelo de voz, chame write_document com o código completo; se disser que o modelo de texto está escrevendo, não escreva o código e apenas avise em uma frase. Para páginas HTML ou desenhos SVG, envie o código completo, sem blocos markdown, e formato html (SVG também usa html); a aba mostra o resultado automaticamente. Não transcreva toda a conversa por voz; a aba recebe apenas textos ou códigos pedidos. Se ele pedir uma continuação, use operacao adicionar; se pedir alteração, envie o documento completo revisado com operacao substituir. Use ferramentas locais quando o usuário pedir para agir. Para Configurações, use open_settings ou open_app_settings, examine os controles e ajude a ajustar a opção pedida; mude volume de mídia, brilho, tempo de tela ou rotação automática apenas quando solicitado. Não tente alterar Wi-Fi, Bluetooth ou permissões diretamente sem a tela do Android. Descubra apps com busca dinâmica, incluindo apps do sistema se necessário. Após um toque, escrita ou gesto, inspecione novamente ou use check_ui para verificar o resultado antes de dizer que conseguiu. Um gesto aceito não significa que uma tarefa terminou. As imagens da tela e da câmera só chegam quando o usuário liga o compartilhamento correspondente; não são armazenadas. Converse normalmente enquanto analisa a imagem mais recente. Não afirme ter executado ações externas que não realizou. Quando a pergunta depender de informação atual ou que você não sabe com certeza (notícias, preços, placares, clima, horários, lançamentos), use a Pesquisa Google (ou a ferramenta web_search, quando for ela a disponível) e diga de onde veio a informação." + AGENT_GUIDE + UserProfile.get(getApplication()).identity(canSave = localToolsAvailable) +
                                 FreshInfo.instructions(canSearch = searchAvailable ||
                                     (localToolsAvailable && preferences.getBoolean("google_search", true))) +
-                                memory.promptBlock() + knowledge.promptBlock())))))
+                                memory.promptBlock() + knowledge.promptBlock() +
+                                // Na retomada o servidor já tem a conversa; o resumo do chat só vai na primeira conexão.
+                                (if (resumeHandle == null) chatRecap else ""))))))
                     sentHandle = false
                     if (extrasAvailable) {
                         val resume = JSONObject()
@@ -371,6 +389,9 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         generationSetup.put("sessionResumption", resume)
                             .put("inputAudioTranscription", JSONObject())
                             .put("outputAudioTranscription", JSONObject())
+                        // No alto-falante, o eco da própria voz não deve contar como o usuário falando (cortava a fala).
+                        if (echoGuard) generationSetup.put("realtimeInputConfig", JSONObject().put("automaticActivityDetection",
+                            JSONObject().put("startOfSpeechSensitivity", "START_SENSITIVITY_LOW")))
                     }
                     val tools = JSONArray()
                     if (localToolsAvailable) tools.put(JSONObject().put("functionDeclarations", localTools.declarations()
@@ -381,6 +402,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                             }
                             // Sem a pesquisa embutida (cota do Live 3.x ou API de busca preferida), usa web_search.
                             if (!searchAvailable && preferences.getBoolean("google_search", true)) list.put(WebSearch.declaration())
+                            // Ler uma página (link de pesquisa ou dito pelo usuário) vale mesmo com a pesquisa embutida.
+                            if (preferences.getBoolean("google_search", true)) list.put(WebPage.declaration())
                             if (knowledge.active && knowledge.sources.isNotEmpty()) list.put(knowledge.toolDeclaration())
                         }))
                     if (searchAvailable) tools.put(JSONObject().put("googleSearch", JSONObject()))
@@ -476,7 +499,17 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                     else "Três interrupções de voz em 10 s. Ative a proteção de eco no painel do Live ou use fones.")
             }
         }
+        // Fontes da Pesquisa Google embutida do Live.
+        content?.optJSONObject("groundingMetadata")?.optJSONArray("groundingChunks")?.let { chunks ->
+            val found = (0 until chunks.length()).mapNotNull { i ->
+                chunks.optJSONObject(i)?.optJSONObject("web")?.let { web ->
+                    web.optString("uri").takeIf { it.isNotBlank() }?.let { web.optString("title").ifBlank { it } to it }
+                }
+            }
+            if (found.isNotEmpty()) main.post { addSources(found) }
+        }
         val parts = content?.optJSONObject("modelTurn")?.optJSONArray("parts")
+        if (parts != null) modelTurnOpen = true
         if (parts != null) for (i in 0 until parts.length()) {
             val inline = parts.optJSONObject(i)?.optJSONObject("inlineData") ?: continue
             if (inline.optString("mimeType").startsWith("audio/pcm")) {
@@ -484,8 +517,13 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 if (encoded.isNotBlank()) audio?.receive(encoded)
             }
         }
-        if (content?.optBoolean("turnComplete") == true || content?.optBoolean("generationComplete") == true)
-            audio?.finishTurn()
+        // Só turnComplete fecha a fala: nos modelos 3.x, generationComplete chega antes do fim do áudio e o
+        // alto-falante parava entre dois pedaços (a voz "engasgava").
+        if (content?.optBoolean("turnComplete") == true || content?.optBoolean("interrupted") == true) {
+            if (content?.optBoolean("turnComplete") == true) audio?.finishTurn()
+            modelTurnOpen = false
+            if (reconnectAfterTurn) main.post { if (running && socket === webSocket && reconnectAfterTurn) reconnectNow(webSocket) }
+        }
         message.optJSONObject("toolCall")?.let { call ->
             main.post { if (running && socket === webSocket) handleToolCall(webSocket, call) }
         }
@@ -528,7 +566,20 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 continue
             }
             if (name == WebSearch.NAME) {
-                WebSearch.run(getApplication(), args) { answer -> sendToolResponse(ws, name, id, answer) }
+                startWork(name)
+                WebSearch.run(getApplication(), args) { answer ->
+                    main.post { collectSources(answer) }
+                    sendToolResponse(ws, name, id, answer, done = true)
+                }
+                continue
+            }
+            if (name == WebPage.NAME) {
+                startWork(name)
+                Thread({
+                    val answer = WebPage.read(args.optString("url"))
+                    main.post { if (!answer.has("erro")) addSources(listOf(answer.optString("titulo").ifBlank { answer.optString("link") } to answer.optString("link"))) }
+                    sendToolResponse(ws, name, id, answer, done = true)
+                }, "ostie-read-url").start()
                 continue
             }
             if (name == "request_code") {
@@ -538,11 +589,12 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             }
             if (localTools.runsAsync(name)) {
                 // Esperar a tela, rolar até achar e olhar a tela respondem depois, sem travar o áudio.
+                startWork(name)
                 localTools.executeAsync(name, args) { answer ->
                     (answer.remove("_imagem") as? String)?.let { sendSnapshot(ws, it) }
                     sendToolResponse(ws, name, id, answer.apply {
                         if (name == "look_at_screen" && !has("erro")) put("resultado", "A imagem da tela foi enviada agora; descreva o que vê.")
-                    })
+                    }, done = true)
                 }
                 continue
             }
@@ -561,10 +613,12 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
             .put("mimeType", "image/jpeg").put("data", jpegBase64))).toString())
     }
 
-    private fun sendToolResponse(ws: WebSocket, name: String, id: String?, answer: JSONObject) {
+    /** [done] = fecha um startWork (tira o aviso "Pesquisando…" da tela). */
+    private fun sendToolResponse(ws: WebSocket, name: String, id: String?, answer: JSONObject, done: Boolean = false) {
         val response = JSONObject().put("name", name).put("response", JSONObject().put("result", answer))
         if (id != null) response.put("id", id)
         main.post {
+            if (done) endWork()
             if (running && socket === ws)
                 ws.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", JSONArray().put(response))).toString())
         }
@@ -638,8 +692,53 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
-        if (message.has("goAway")) { fail(ws, "servidor pediu reconexão"); return }
+        if (message.has("goAway")) {
+            // Troca de servidor avisada com antecedência: termina a frase e só então reconecta (com retomada).
+            val seconds = message.optJSONObject("goAway")?.optString("timeLeft").orEmpty().removeSuffix("s").toDoubleOrNull() ?: 0.0
+            if (!modelTurnOpen || seconds < 2) { reconnectNow(ws); return }
+            reconnectAfterTurn = true
+            main.postDelayed({ if (running && socket === ws && reconnectAfterTurn) reconnectNow(ws) },
+                ((seconds - 1.0) * 1000).toLong().coerceAtLeast(0))
+            return
+        }
         if (message.has("error")) { fail(ws, "erro comunicado pelo serviço"); return }
+    }
+
+    private fun reconnectNow(ws: WebSocket) {
+        reconnectAfterTurn = false
+        fail(ws, "servidor pediu reconexão")
+    }
+
+    /** Links de um resultado de web_search (lista da API ou "Fontes:" do resumo do Gemini). */
+    private fun collectSources(answer: JSONObject) {
+        val list = answer.optJSONArray("resultados")
+        val found = if (list != null) (0 until list.length()).mapNotNull { i ->
+            list.optJSONObject(i)?.let { item -> item.optString("titulo").ifBlank { item.optString("link") } to item.optString("link") }
+        } else WebPage.links(answer.optString("resultado")).map { link ->
+            (android.net.Uri.parse(link).host?.removePrefix("www.") ?: link) to link
+        }
+        if (found.isNotEmpty()) addSources(found.filter { it.second.isNotBlank() })
+    }
+
+    private fun addSources(found: List<Pair<String, String>>) {
+        sources = (found + sources).distinctBy { it.second }.take(6)
+    }
+
+    /** Aviso na tela enquanto ferramentas demoradas rodam. */
+    private fun startWork(name: String) {
+        pendingTools++
+        working = when {
+            name == WebSearch.NAME || name == WebPage.NAME -> "Pesquisando na web…"
+            name == "look_at_screen" -> "Olhando a tela…"
+            localTools.runsAsync(name) || name in setOf("inspect_screen", "open_app") -> "Mexendo no celular…"
+            name == "request_code" -> "Preparando o código…"
+            else -> "Fazendo o que você pediu…"
+        }
+    }
+
+    private fun endWork() {
+        pendingTools = (pendingTools - 1).coerceAtLeast(0)
+        if (pendingTools == 0) working = null
     }
 
     private fun fail(ws: WebSocket, cause: String, unauthorized: Boolean = false, terminal: Boolean = false) {

@@ -13,7 +13,7 @@ import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.Process
 import android.util.Base64
-import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.sqrt
@@ -28,7 +28,16 @@ class LiveAudioEngine(
     private val onDiagnostic: (String) -> Unit
 ) {
     private data class AudioChunk(val generation: Int, val bytes: ByteArray)
-    private val queue = ArrayBlockingQueue<AudioChunk>(96)
+    /**
+     * Sem limite de pedaços: os modelos 3.x mandam o áudio em rajadas de muitos pedaços pequenos, e a fila de 96
+     * descartava parte da fala (a voz "engasgava"). O limite agora é de bytes (1 min de áudio).
+     */
+    private val queue = LinkedBlockingQueue<AudioChunk>()
+    /** Último pedaço recebido: pausa curta entre pedaços não encerra a fala. */
+    @Volatile private var lastChunkAt = 0L
+    /** Para o diagnóstico ao fim da conversa. */
+    private val underrunsTotal = AtomicInteger(0)
+    private val droppedTotal = AtomicInteger(0)
     private val queuedBytes = AtomicInteger(0)
     private val generation = AtomicInteger(0)
     private val outputLock = Any()
@@ -154,7 +163,8 @@ class LiveAudioEngine(
                     buffering = true
                 }
                 // turnComplete indica fim da entrada, não que o alto-falante terminou.
-                if (turnEnded && queuedBytes.get() == 0 && queue.isEmpty()) {
+                if (turnEnded && queuedBytes.get() == 0 && queue.isEmpty() &&
+                    System.currentTimeMillis() - lastChunkAt > TURN_GRACE_MS) {
                     val remaining = writtenFrames - output.playbackHeadPosition.toLong()
                     if (buffering || remaining <= 240L) {
                         synchronized(outputLock) { if (running) { output.pause(); output.flush() } }
@@ -179,6 +189,7 @@ class LiveAudioEngine(
                 val next = try { queue.poll(25, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break }
                 if (next == null) {
                     if (!turnEnded && output.underrunCount > lastUnderruns) {
+                        underrunsTotal.incrementAndGet()
                         lastUnderruns = output.underrunCount
                         targetBytes = minOf(targetBytes + 2880, 24000) // Máximo de 500 ms.
                         buffering = true
@@ -221,15 +232,18 @@ class LiveAudioEngine(
         leftoverByte = if (data.size % 2 != 0) data.last() else null
         val bytes = if (leftoverByte != null) data.copyOf(data.size - 1) else data
         if (bytes.isEmpty()) return
-        queuedBytes.addAndGet(bytes.size)
-        if (!queue.offer(AudioChunk(generation.get(), bytes))) {
-            queuedBytes.addAndGet(-bytes.size)
+        lastChunkAt = System.currentTimeMillis()
+        if (queuedBytes.get() + bytes.size > MAX_QUEUED_BYTES) {
+            droppedTotal.incrementAndGet()
             val now = System.currentTimeMillis()
             if (now - lastOverflowWarning > 3000) {
                 lastOverflowWarning = now
                 onDiagnostic("Fila de reprodução cheia; áudio do serviço chegou mais rápido que o aparelho reproduziu.")
             }
+            return
         }
+        queuedBytes.addAndGet(bytes.size)
+        queue.offer(AudioChunk(generation.get(), bytes))
     }
 
     fun finishTurn() { turnEnded = true }
@@ -265,6 +279,9 @@ class LiveAudioEngine(
         val wasRunning = running
         running = false
         if (wasRunning) saveCalibration()
+        // Resumo para entender voz picotada: faltas = rede ou aparelho lentos; descartes = fila cheia.
+        if (wasRunning && (underrunsTotal.get() > 2 || droppedTotal.get() > 0))
+            onDiagnostic("Áudio da conversa: ${underrunsTotal.get()} falta(s) de áudio e ${droppedTotal.get()} pedaço(s) descartado(s).")
         generation.incrementAndGet()
         queue.clear()
         queuedBytes.set(0)
@@ -334,6 +351,9 @@ class LiveAudioEngine(
         private const val BARGE_FRAMES = 3 // 120 ms de fala acima do eco para interromper.
         private const val BARGE_HOLD_MS = 1200L
         private const val CONFIRM_MS = 3500L
+        /** Pausa entre pedaços de áudio que ainda conta como a mesma fala. */
+        private const val TURN_GRACE_MS = 350L
+        private const val MAX_QUEUED_BYTES = 24_000 * 2 * 60
         const val CALIBRATION_PREFS = "osone_echo"
         private val PRIVATE_OUTPUTS = setOf(
             AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
