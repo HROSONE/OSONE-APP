@@ -83,7 +83,8 @@ fun ChatScreen(viewModel: OsoneViewModel, onMic: () -> Unit, onAttach: () -> Uni
         }
         Column(Modifier.padding(horizontal = 16.dp)) {
             if (viewModel.busy) {
-                Hint("Consultando ${viewModel.activeTextModel ?: viewModel.selectedChatLabel}…")
+                Hint(if (viewModel.searching) "Pesquisando na web antes de responder…"
+                    else "Consultando ${viewModel.activeTextModel ?: viewModel.selectedChatLabel}…")
                 Spacer(Modifier.height(4.dp))
                 LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
                 Spacer(Modifier.height(6.dp))
