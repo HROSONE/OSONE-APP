@@ -57,6 +57,20 @@ class ScreensTest {
         compose.onNodeWithContentDescription("Fechar visualização").assertExists()
     }
 
+    @Test fun writingCanUndoTheLastChangeAndRequestNeedsText() {
+        val workspace = WritingWorkspace.get(app).apply { clear(); updateContent("Primeira versão") }
+        writingScreen(workspace)
+        compose.onNodeWithContentDescription("Enviar pedido ao OSTIE").assertIsNotEnabled()
+        compose.runOnIdle {
+            workspace.publish(JSONObject().put("titulo", "Texto").put("formato", "text").put("conteudo", "Segunda versão"))
+        }
+        compose.onNodeWithText("Desfazer").performClick()
+        compose.runOnIdle {
+            assertEquals("Primeira versão", workspace.content)
+            assertEquals(false, workspace.canUndo)
+        }
+    }
+
     @Test fun routinesScreenCreatesReminderAndAsksForCalendar() {
         var calendarAsked = false
         var notificationsAsked = false

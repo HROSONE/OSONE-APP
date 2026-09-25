@@ -30,7 +30,24 @@ class WritingWorkspace private constructor(context: Context) {
     var previewPending by mutableStateOf(false)
         private set
 
+    /** Versão anterior a uma troca feita pelo OSTIE, para desfazer. */
+    var canUndo by mutableStateOf(storage.contains("prev_content"))
+        private set
+
     fun consumePreview() { previewPending = false }
+
+    /** Volta ao documento de antes da última troca feita pelo OSTIE (uma vez). */
+    fun undo() {
+        val previous = storage.getString("prev_content", null) ?: return
+        title = storage.getString("prev_title", "Novo documento").orEmpty()
+        content = previous
+        format = storage.getString("prev_format", "text").orEmpty()
+        storage.edit().putString("title", title).putString("content", content).putString("format", format)
+            .remove("prev_title").remove("prev_content").remove("prev_format").apply()
+        canUndo = false
+        previewPending = format == "html"
+        revision++
+    }
 
     fun updateContent(value: String) {
         content = value
@@ -52,10 +69,15 @@ class WritingWorkspace private constructor(context: Context) {
         val append = args.optString("operacao").equals("adicionar", true)
         val newValue = if (append && content.isNotBlank()) "$content\n\n$value" else value
         if (newValue.length > 160_000) return JSONObject().put("erro", "Documento excede o limite local.")
+        val editor = storage.edit()
+        if (content.isNotBlank()) {
+            editor.putString("prev_title", title).putString("prev_content", content).putString("prev_format", format)
+            canUndo = true
+        }
         title = proposedTitle
         content = newValue
         format = proposedFormat
-        storage.edit().putString("title", title).putString("content", content)
+        editor.putString("title", title).putString("content", content)
             .putString("format", format).apply()
         previewPending = format == "html"
         revision++
@@ -63,11 +85,16 @@ class WritingWorkspace private constructor(context: Context) {
             .put("titulo", title).put("formato", format).put("caracteres", content.length)
     }
 
+    /** Apaga o documento, mas guarda a versão apagada para "Desfazer". */
     fun clear() {
+        val editor = storage.edit().clear()
+        if (content.isNotBlank())
+            editor.putString("prev_title", title).putString("prev_content", content).putString("prev_format", format)
+        canUndo = content.isNotBlank()
         previewPending = false
         title = "Novo documento"
         content = ""
         format = "text"
-        storage.edit().clear().apply()
+        editor.apply()
     }
 }

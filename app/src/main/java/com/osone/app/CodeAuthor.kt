@@ -23,9 +23,9 @@ enum class CodeAuthorChoice(val value: String, val label: String) {
     }
 }
 
-/** Pedido de código feito por voz, aguardando a escolha de quem vai escrevê-lo. */
+/** Pedido de código feito por voz (aguardando a escolha de quem vai escrevê-lo) ou digitado na Aba de Escrita ([typed]). */
 class CodeRequest(val callId: String?, val title: String, val request: String, val format: String,
-    val modify: Boolean, val respond: (JSONObject) -> Unit)
+    val modify: Boolean, val typed: Boolean = false, val respond: (JSONObject) -> Unit)
 
 /**
  * Decide quem escreve código pedido no Live: o próprio modelo de voz ou o modelo de texto
@@ -44,6 +44,15 @@ class CodeAuthor private constructor(context: Context) {
             "visual moderno e responsivo para tela de celular. O preview não tem internet: não use CDN, fontes, imagens ou scripts externos. " +
             "Para SVG, entregue apenas o elemento <svg> completo com viewBox. Para outras linguagens, apenas o código-fonte. " +
             "Nunca omita partes com reticências ou 'resto do código'."
+
+        /** Pedido digitado na Aba de Escrita: pode ser texto ou código, novo ou alteração do atual. */
+        private const val TYPED_SYSTEM = "Você escreve e edita o documento da Aba de Escrita do OSTIE, um app Android: textos ou código. " +
+            "Responda SOMENTE com o documento completo final, sem explicações antes ou depois e sem blocos markdown. " +
+            "Se o pedido for uma alteração do documento atual, mantenha todo o resto exatamente igual e mude só o que foi pedido. " +
+            "Se o pedido for algo novo, escreva do zero e ignore o documento atual. Responda no idioma do usuário. " +
+            "Para páginas HTML, entregue um único arquivo autocontido começando com <!doctype html>, com CSS e JavaScript embutidos, " +
+            "visual moderno e responsivo para tela de celular, sem CDN, fontes, imagens ou scripts externos. " +
+            "Para SVG, apenas o elemento <svg> completo com viewBox. Nunca omita partes com reticências ou 'resto do código'."
     }
 
     private val app = context
@@ -122,6 +131,16 @@ class CodeAuthor private constructor(context: Context) {
         draft = ""
     }
 
+    /** Pedido digitado na Aba de Escrita: o modelo de texto escreve ou altera o documento atual. */
+    fun edit(instruction: String) {
+        val text = instruction.trim()
+        if (text.isEmpty() || writingWith != null) return
+        val current = writing.content
+        val title = writing.title.takeIf { current.isNotBlank() && it != "Novo documento" }
+            ?: text.lineSequence().first().take(60)
+        generate(CodeRequest(null, title, text, format = "", modify = current.isNotBlank(), typed = true) { }, textModelLabel())
+    }
+
     private fun resolve(request: CodeRequest, useText: Boolean) {
         if (!useText) {
             request.respond(JSONObject().put("resultado",
@@ -144,14 +163,16 @@ class CodeAuthor private constructor(context: Context) {
         val prompt = buildString {
             append("Pedido do usuário: ").append(request.request)
             if (request.format.isNotBlank()) append("\nFormato desejado: ").append(request.format)
-            if (request.modify && current.isNotBlank())
+            if (request.typed && current.isNotBlank())
+                append("\n\nDocumento atual (formato ${writing.format}):\n\n").append(current)
+            else if (request.modify && current.isNotBlank())
                 append("\n\nAltere o documento atual abaixo e devolva a versão completa revisada:\n\n").append(current)
         }
         val started = System.currentTimeMillis()
         job = scope.launch {
             try {
                 val answer = withContext(Dispatchers.IO) {
-                    TextModel.ask(app, prompt, SYSTEM) { partial -> main.post { if (writingWith == label) draft = partial } }
+                    TextModel.ask(app, prompt, if (request.typed) TYPED_SYSTEM else SYSTEM) { partial -> main.post { if (writingWith == label) draft = partial } }
                 }
                 if (!isActive) return@launch
                 val code = DocumentPreview.stripFence(DocumentPreview.codeBlock(answer)?.second ?: answer)

@@ -17,6 +17,7 @@ Programado na branch `claude/aprimorar-71toz4` (lotes 1, 2 e 3 do plano de 25/09
 9. Contexto do chat por tamanho de texto (`ChatContext`): Gemini até 40 mensagens/60 mil caracteres; Groq e OpenRouter até 20/12 mil.
 10. Widget na tela inicial: botão Falar e próxima rotina (abre a aba Rotinas).
 11. Testes de tela do Live (relógio manual por causa do orbe) e dos Ajustes, e da edição de rotina.
+12. Aba de Escrita com campo de pedido: o modelo de texto escreve algo novo ou altera só o que foi pedido no documento atual; botão "Desfazer" (também depois de apagar).
 
 Ideias maiores para depois:
 
