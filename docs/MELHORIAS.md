@@ -4,24 +4,19 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano da sessão de 25/09/2026 (da mais valiosa para a menos), em lotes de um PR cada:
+Programado na branch `claude/aprimorar-71toz4` (lotes 1, 2 e 3 do plano de 25/09/2026). **Falta compilar e publicar**: os minutos do GitHub Actions acabaram; quando voltarem, abrir um PR único com tudo, corrigir o que a CI apontar e publicar. Itens:
 
-**Lote 1 — o OSTIE age com qualquer "cérebro"** (programado na branch `claude/aprimorar-71toz4`; falta compilar na CI e publicar quando os minutos do Actions voltarem)
-1. Ações no chat escrito com Groq e OpenRouter: chamadas de ferramenta no formato OpenAI (streaming), laço de até 5 rodadas, conversão do esquema Gemini para JSON Schema e volta sem ferramentas se o modelo recusar.
-2. Rotinas com Groq/OpenRouter também leem agenda e notificações e deixam botões na notificação (hoje só o Gemini usa ferramentas nelas).
-3. Rotina que falha depois de usar uma ferramenta não é repetida (evita anotar duas vezes na memória).
-4. Live relê a memória ao reconectar (pega anotações e organizações feitas no meio da conversa).
-
-**Lote 2 — rotinas mais fáceis e pontuais**
-5. Editar rotina existente (hoje só dá para apagar e criar de novo).
-6. Cada rotina mostra quando roda de novo ("amanhã 08:00").
-7. Aviso com botão para liberar "Alarmes e lembretes" no Android 12+: sem isso a rotina pode atrasar até 10 min.
-8. Botão "Copiar" nos últimos resultados.
-
-**Lote 3 — chat e tela inicial**
-9. Contexto maior no chat: enviar as últimas mensagens por tamanho de texto, não só as 12 últimas.
-10. Widget na tela inicial: iniciar o Live e ver a próxima rotina.
-11. Testes de tela do Live e dos Ajustes (controlar as animações infinitas com `mainClock.autoAdvance = false`).
+1. Ações no chat escrito com Groq e OpenRouter (ferramentas no formato OpenAI, até 5 rodadas; responde sem elas se o modelo recusar).
+2. Rotinas com Groq/OpenRouter leem agenda e notificações e deixam botões.
+3. Rotina que falha depois de usar ferramenta não é repetida.
+4. Live relê a memória a cada conexão.
+5. Editar rotina existente.
+6. Cada rotina mostra quando roda de novo.
+7. Rotinas no horário exato: `USE_EXACT_ALARM` (Android 13+) e aviso com botão "Liberar" quando o Android não permite.
+8. Botão "Copiar" nos últimos resultados das rotinas.
+9. Contexto do chat por tamanho de texto (`ChatContext`): Gemini até 40 mensagens/60 mil caracteres; Groq e OpenRouter até 20/12 mil.
+10. Widget na tela inicial: botão Falar e próxima rotina (abre a aba Rotinas).
+11. Testes de tela do Live (relógio manual por causa do orbe) e dos Ajustes, e da edição de rotina.
 
 Ideias maiores para depois:
 

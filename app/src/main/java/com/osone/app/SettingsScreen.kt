@@ -70,7 +70,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     if (live.active != null) live.start() // O Live só recebe ferramentas ao conectar.
                 }, "Notícias, preços, clima e fatos recentes. Usa a mesma chave Gemini, no chat escrito (Gemini) e no Live. Respostas do chat mostram as fontes.")
                 if (viewModel.provider != ChatProvider.GEMINI)
-                    Hint("Groq e OpenRouter não têm Pesquisa Google; no chat escrito ela só funciona com Gemini.")
+                    Hint("Groq e OpenRouter não têm Pesquisa Google própria: com as ações no chat ligadas, eles pesquisam pela chave Gemini.")
             }
             SectionCard("Chat escrito", OstieIcons.Chat) {
                 OptionPicker("Provedor", viewModel.provider.label, ChatProvider.entries, { it.label }, viewModel::selectProvider)
