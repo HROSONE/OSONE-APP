@@ -93,6 +93,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val pickFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.attach(uri)
     }
+    /** Ditado no chat: reconhecimento de voz do Android; o texto vai para o campo de mensagem. */
+    private val dictation = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            ?.takeIf { it.isNotBlank() }?.let(viewModel::receiveDictation)
+    }
+
+    private fun startDictation() {
+        val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Fale a sua mensagem")
+        try { dictation.launch(intent) } catch (_: android.content.ActivityNotFoundException) {
+            android.widget.Toast.makeText(this, "Este celular não tem reconhecimento de voz instalado (app Google).",
+                android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     private val pickUpdateApk = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) lifecycleScope.launch { updater.chooseApk(uri) }
     }
@@ -280,7 +296,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 .put("conteudo", code).put("formato", language))
                             showWriting = true
                         },
-                        onDiagnostics = { showDiagnostics = true }, readAloud = readAloud,
+                        onDiagnostics = { showDiagnostics = true }, readAloud = readAloud, onDictate = ::startDictation,
                         onReadAloud = {
                             readAloud = !readAloud
                             if (!readAloud) { chatVoice.stop(); speech?.stop() }

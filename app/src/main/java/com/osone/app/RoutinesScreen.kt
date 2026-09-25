@@ -73,14 +73,15 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(routine.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text("${routine.timeLabel} · ${routine.daysLabel} · ${if (routine.reminder) "lembrete" else "tarefa"}",
+                                Text((if (routine.byEvent) "Ao chegar notificação: ${routine.onNotification}"
+                                    else "${routine.timeLabel} · ${routine.daysLabel}") + " · ${if (routine.reminder) "lembrete" else "tarefa"}",
                                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             Switch(checked = routine.enabled, onCheckedChange = { store.setEnabled(routine.id, it) })
                         }
                         Text(routine.instruction, style = MaterialTheme.typography.bodySmall, maxLines = 3,
                             overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (routine.enabled) "Próxima: " + RoutineSchedule.whenLabel(now,
+                        if (!routine.byEvent) Text(if (routine.enabled) "Próxima: " + RoutineSchedule.whenLabel(now,
                                 RoutineSchedule.next(now, routine.hour, routine.minute, routine.days)) else "Pausada",
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row {

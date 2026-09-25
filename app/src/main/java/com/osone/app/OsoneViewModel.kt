@@ -9,7 +9,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -318,7 +320,6 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         base + PLAIN_TEXT + FreshInfo.instructions(canSearch = canSearch) + UserProfile.get(getApplication()).identity(canSave) + memory.promptBlock() +
             KnowledgeBase.get(getApplication()).let { it.promptBlock() + it.relevant(query) }
 
-    private val agentTools by lazy { AgentTools(getApplication(), background = false) }
 
     /** Ferramentas do app (alarmes, agenda, rotinas, memória, mensagens) também no chat escrito, com qualquer provedor. */
     var chatTools by androidx.compose.runtime.mutableStateOf(settings.getBoolean("chat_tools", true))
@@ -333,6 +334,45 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     var incomingText by androidx.compose.runtime.mutableStateOf<String?>(null)
         private set
     fun receiveShared(text: String) { incomingText = text.take(20_000) }
+
+    /** Texto ditado pelo reconhecimento de voz do Android: entra no fim do campo de mensagem. */
+    var dictated by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+    fun receiveDictation(text: String) { dictated = text.trim().take(4_000) }
+    fun consumeDictation() { dictated = null }
+
+    private var answerJob: Job? = null
+    private var currentTools: AgentTools? = null
+    private val phoneActions by lazy { PhoneActions(getApplication()) }
+    private var answerGeneration = 0
+
+    /**
+     * Botão Parar: o que já chegou fica na conversa e ações pedidas depois disso são recusadas.
+     * (A chamada de rede termina sozinha em segundo plano; a resposta dela é ignorada.)
+     */
+    fun stopAnswer() {
+        if (!busy) return
+        currentTools?.halted = true
+        answerGeneration++
+        answerJob?.cancel()
+        answerJob = null
+        val partial = streamingText.trim()
+        if (partial.isNotEmpty()) messages = messages + ChatMessage("model", "$partial\n\n(resposta interrompida)")
+        streamingText = ""
+        searching = false
+        activeModel = null; activeTextModel = null; busy = false
+        viewModelScope.launch(Dispatchers.IO) { history.save(messages) }
+    }
+
+    /** Tentar de novo: reenvia a pergunta do usuário; se for a última troca, a resposta antiga é substituída. */
+    fun retry(index: Int, onAnswer: (String) -> Unit) {
+        if (busy || index !in messages.indices) return
+        val userIndex = (index downTo 0).firstOrNull { messages[it].role == "user" } ?: return
+        val text = messages[userIndex].text.substringBefore("\n📎 ").removePrefix("Por voz: ")
+        if (text.isBlank()) return
+        if (userIndex >= messages.lastIndex - 1) messages = messages.take(userIndex)
+        send(text, onAnswer)
+    }
     fun consumeIncoming() { incomingText = null }
 
     fun send(input: String, onAnswer: (String) -> Unit): Boolean {
@@ -354,7 +394,11 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         activeTextModel = null
         streamingText = ""
         val snapshot = messages
-        viewModelScope.launch {
+        // Ferramentas desta resposta: Parar bloqueia só elas, não as da próxima pergunta.
+        val sendTools = AgentTools(getApplication(), background = false, phone = phoneActions)
+        currentTools = sendTools
+        val generation = ++answerGeneration
+        answerJob = viewModelScope.launch {
             var uploaded: String? = null
             try {
                 var response: String
@@ -366,14 +410,14 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                         else ChatModel.candidates(selectedModel, fallback)
                     var answer: String? = null
                     // Anexos seguem só para análise; o chat com ferramentas age como o Live.
-                    val tools = if (selectedFile == null && chatTools) agentTools else null
+                    val tools = if (selectedFile == null && chatTools) sendTools else null
                     for ((index, choice) in choices.withIndex()) {
                         activeModel = choice
                         activeTextModel = "Gemini · ${choice.label}"
                         try {
                             answer = withContext(Dispatchers.IO) {
                                 val stream: (String) -> Unit = { partial ->
-                                    main.post { if (busy && activeModel == choice) streamingText = partial }
+                                    main.post { if (busy && activeModel == choice && answerGeneration == generation) streamingText = partial }
                                 }
                                 TextModel.gemini(key, choice, snapshot, thinkingMode, part,
                                     chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null, prompt,
@@ -393,7 +437,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     var modelId = if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel
                     var retried = false
-                    val tools = if (chatTools) agentTools else null
+                    val tools = if (chatTools) sendTools else null
                     // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa pela API de busca ou pela chave Gemini.
                     val canSearch = googleSearch && WebSearch.available(getApplication())
                     val functions = tools?.declarations(webSearch = canSearch)
@@ -411,7 +455,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                             searching = true
                             val found = try {
                                 withContext(Dispatchers.IO) {
-                                    agentTools.run(WebSearch.NAME, org.json.JSONObject().put("consulta", query))
+                                    sendTools.run(WebSearch.NAME, org.json.JSONObject().put("consulta", query))
                                 }
                             } finally { searching = false }
                             if (!found.has("erro")) {
@@ -441,7 +485,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                     functions = functions, runTool = tools?.let { it::run },
                                     browserSearch = browserSearch,
                                     onDowngrade = { diagnostics.record("Chat ${selectedProvider.label}", it) }) { partial ->
-                                    main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
+                                    main.post { if (busy && activeTextModel == currentLabel && answerGeneration == generation) streamingText = partial }
                                 }
                             }
                             break
@@ -467,6 +511,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 if (attachment == selectedFile) attachment = null
                 onAnswer(response)
             } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
                 streamingText = ""
                 diagnostics.record(if (selectedFile != null) "Arquivo Gemini" else "Chat ${selectedProvider.label}", when {
                     exception is ChatProviderHttpException -> "HTTP ${exception.status} durante resposta. Modelo: ${if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel}."
@@ -495,7 +540,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                         catch (_: Exception) { diagnostics.record("Arquivo", "Não foi possível remover o arquivo remoto após a análise.") }
                     }
                 }
-                activeModel = null; activeTextModel = null; busy = false
+                // Depois de Parar, uma pergunta nova pode já estar em andamento: não mexe no estado dela.
+                if (answerGeneration == generation) { activeModel = null; activeTextModel = null; busy = false }
             }
         }
         return true
@@ -503,8 +549,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         /** O balão do chat mostra texto puro: Markdown apareceria com ** e | soltos. */
-        const val PLAIN_TEXT = " O chat mostra texto simples: não use Markdown (nada de **, #, tabelas ou linhas com |), " +
-            "exceto blocos de código entre ``` quando mostrar código; para listas, use linhas começando com \"• \" e deixe uma linha em branco entre os itens."
+        const val PLAIN_TEXT = " O chat mostra Markdown simples: pode usar **negrito**, *itálico*, títulos com #, listas com - ou 1. " +
+            "e blocos de código entre ```. Evite tabelas (no celular viram lista)."
         const val TOOLS_GUIDE = " Você tem as ferramentas do app no celular do usuário: alarmes, timers, agenda, contatos, " +
             "mensagens e ligações prontas, rotas, notificações, rotinas agendadas, apps e a sua memória. Use-as quando o " +
             "usuário pedir para agir ou quando precisar dos dados delas, e diga em uma frase o que fez. Mensagens e ligações " +

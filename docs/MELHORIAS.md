@@ -4,7 +4,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 25/09/2026 (tarde), aguardando o ok:
+Plano de 25/09/2026 (tarde): itens 1 a 5 feitos na branch (aguardando a janela pública); 6 e 7 ficaram para depois.
 
 Lote A — chat
 1. Botão "Parar" enquanto o chat responde.

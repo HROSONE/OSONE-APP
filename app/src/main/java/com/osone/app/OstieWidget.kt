@@ -26,7 +26,7 @@ class OstieWidget : AppWidgetProvider() {
 
         private fun views(context: Context): RemoteViews {
             val now = System.currentTimeMillis()
-            val next = RoutineStore.get(context).routines.filter { it.enabled }
+            val next = RoutineStore.get(context).routines.filter { it.enabled && !it.byEvent }
                 .map { it to RoutineSchedule.next(now, it.hour, it.minute, it.days) }
                 .minByOrNull { it.second }
             return RemoteViews(context.packageName, R.layout.widget_ostie).apply {
