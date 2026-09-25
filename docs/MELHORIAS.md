@@ -6,7 +6,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 Nada pendente do plano de 25/09/2026 (saiu na 0.15.80).
 
-- Na branch, aguardando janela pública: gestos no controle do celular (screen_gesture): pinça para ampliar/reduzir, toque duplo, segurar num ponto e arrastar segurando; inspect_screen informa o tamanho da tela.
+- Agente (lotes A e B de 25/09/2026, na branch até a próxima janela pública): wait_for_ui, leitura da tela com estado das chaves e escolha entre controles repetidos, look_at_screen (print no Live, Android 11+), scroll_to_text e rolagem lateral, trava de ações sensíveis com o sim do usuário por voz (AgentGuard), copiar e colar, painéis rápidos (internet, Wi-Fi, volume, NFC) e histórico de ações no painel do Live.
 - Ideia: mostrar Markdown no balão do chat (negrito, listas, tabelas) em vez de proibir.
 
 Ideias maiores para depois:
@@ -29,3 +29,4 @@ Ideias maiores para depois:
 | 0.15.78 | Base de conhecimento (texto, link, PDF, MD, TXT, DOCX) para o OSTIE atender sobre uma empresa, produto ou assunto |
 | 0.15.80 | Ações no chat e nas rotinas com Groq e OpenRouter, rotinas editáveis e no horário exato, contexto maior no chat, widget na tela inicial, pedidos digitados na Aba de Escrita com "Desfazer", API de busca do Google, testes de tela do Live e dos Ajustes |
 | 0.15.82 | Chat e Live sabem a data de hoje; Groq e OpenRouter pesquisam na web antes de falar de notícias, preços, clima etc.; respostas do chat sem Markdown cru |
+| 0.15.84 | Controle do celular com pinça (ampliar/reduzir), toque duplo, segurar e arrastar segurando |

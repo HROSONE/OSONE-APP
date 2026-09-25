@@ -104,7 +104,7 @@ class AgentTools(private val context: Context, private val background: Boolean) 
         private val BACKGROUND_LOCAL = setOf("device_status")
         /** Ações de aparelho úteis no chat; controle de tela por acessibilidade fica no Live. */
         private val CHAT_LOCAL = setOf("list_apps", "open_app", "open_app_settings", "open_settings", "set_media_volume",
-            "set_brightness", "set_screen_timeout", "set_auto_rotate", "device_status")
+            "set_brightness", "set_screen_timeout", "set_auto_rotate", "device_status", "copy_text", "open_panel")
         private val DEFAULT_LABELS = mapOf("sms" to "Enviar SMS", "whatsapp" to "Abrir WhatsApp", "ligar" to "Ligar",
             "rota" to "Ver rota", "link" to "Abrir link", "alarme" to "Criar alarme")
 

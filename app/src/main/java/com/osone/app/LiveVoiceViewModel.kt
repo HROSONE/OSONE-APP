@@ -535,6 +535,16 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                 codeAuthor.request(id, args) { answer -> sendToolResponse(ws, name, id, answer) }
                 continue
             }
+            if (localTools.runsAsync(name)) {
+                // Esperar a tela, rolar até achar e olhar a tela respondem depois, sem travar o áudio.
+                localTools.executeAsync(name, args) { answer ->
+                    (answer.remove("_imagem") as? String)?.let { sendSnapshot(ws, it) }
+                    sendToolResponse(ws, name, id, answer.apply {
+                        if (name == "look_at_screen" && !has("erro")) put("resultado", "A imagem da tela foi enviada agora; descreva o que vê.")
+                    })
+                }
+                continue
+            }
             val answer = if (name == "write_document") writing.publish(args) else localTools.execute(name, args)
             val response = JSONObject().put("name", name).put("response", JSONObject().put("result", answer))
             if (id != null) response.put("id", id)
@@ -542,6 +552,12 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         }
         if (responses.length() > 0 && socket === ws && running)
             ws.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
+    }
+
+    /** Print pedido pelo modelo (look_at_screen): vai como um quadro de vídeo, mesmo sem compartilhar a tela. */
+    private fun sendSnapshot(ws: WebSocket, jpegBase64: String) {
+        if (running && socket === ws) ws.send(JSONObject().put("realtimeInput", JSONObject().put("video", JSONObject()
+            .put("mimeType", "image/jpeg").put("data", jpegBase64))).toString())
     }
 
     private fun sendToolResponse(ws: WebSocket, name: String, id: String?, answer: JSONObject) {
@@ -700,7 +716,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         val HEADER_REFUSED = setOf(400, 401, 403)
         val LEVEL_NAMES = listOf("com configuração completa", "sem Pesquisa Google embutida",
             "sem legendas e retomada de conversa", "só com as ferramentas básicas", "somente voz")
-        const val AGENT_GUIDE = " Para alarmes, timers, agenda, contatos, ligações, mensagens, rotas, mídia, lanterna, links e compartilhar, prefira as ferramentas diretas (set_alarm, set_timer, create_event, find_contact, dial, compose_message, navigate, media_control, flashlight, open_url, share_text) em vez de tocar na tela; use a acessibilidade só quando não houver ferramenta direta. Na tela, touch_screen faz toque simples e deslize rápido; para ampliar ou reduzir fotos, mapas e páginas (pinça), toque duplo, toque longo num ponto e arrastar segurando (mover ícones e itens), use screen_gesture com as coordenadas de inspect_screen. Para ligar ou mandar mensagem a alguém pelo nome, use find_contact antes. Mensagens e ligações abrem prontas e o usuário confirma o envio; reply_notification pede confirmação na tela, então avise que ele precisa confirmar. Use read_notifications quando ele perguntar o que chegou. Você tem uma memória própria em Documentos/OSTIE/memoria.md, organizada em seções: sempre que aprender algo duradouro e útil sobre o usuário (preferências, pessoas, rotina, projetos, combinados), anote por conta própria com memory_note, sem pedir permissão e sem anunciar cada anotação; quando uma seção ficar repetida ou desatualizada, reorganize com memory_rewrite; se ele pedir para esquecer, use memory_forget. Nunca anote senhas, códigos, dados bancários ou documentos. Para coisas repetidas ou em horário marcado (\"todo dia às 8h me dá as notícias\", \"me lembra às 18h de tomar remédio\"), crie uma rotina com create_routine: tipo lembrete para avisos fixos, tipo tarefa quando precisar pesquisar ou escrever algo na hora; confirme horário e dias ao usuário."
+        const val AGENT_GUIDE = " Para alarmes, timers, agenda, contatos, ligações, mensagens, rotas, mídia, lanterna, links e compartilhar, prefira as ferramentas diretas (set_alarm, set_timer, create_event, find_contact, dial, compose_message, navigate, media_control, flashlight, open_url, share_text) em vez de tocar na tela; use a acessibilidade só quando não houver ferramenta direta. Na tela, touch_screen faz toque simples e deslize rápido; para ampliar ou reduzir fotos, mapas e páginas (pinça), toque duplo, toque longo num ponto e arrastar segurando (mover ícones e itens), use screen_gesture com as coordenadas de inspect_screen. Em tarefas com vários passos: depois de abrir um app ou tocar em algo que muda de tela, use wait_for_ui com um texto da próxima tela antes de seguir; para achar algo numa lista longa, use scroll_to_text; quando os controles não bastarem (fotos, jogos, apps sem acessibilidade), use look_at_screen para ver a tela. Se houver controles repetidos, escolha com ordem. Tocar em enviar, pagar, comprar, apagar ou confirmar em outros apps exige o sim do usuário: quando a ferramenta pedir, pergunte em voz, espere a resposta e só então repita com confirmado_pelo_usuario=true. Para Wi-Fi, internet, volume ou NFC, abra o painel com open_panel. Para passar texto entre apps, use copy_text e paste_text. Para ligar ou mandar mensagem a alguém pelo nome, use find_contact antes. Mensagens e ligações abrem prontas e o usuário confirma o envio; reply_notification pede confirmação na tela, então avise que ele precisa confirmar. Use read_notifications quando ele perguntar o que chegou. Você tem uma memória própria em Documentos/OSTIE/memoria.md, organizada em seções: sempre que aprender algo duradouro e útil sobre o usuário (preferências, pessoas, rotina, projetos, combinados), anote por conta própria com memory_note, sem pedir permissão e sem anunciar cada anotação; quando uma seção ficar repetida ou desatualizada, reorganize com memory_rewrite; se ele pedir para esquecer, use memory_forget. Nunca anote senhas, códigos, dados bancários ou documentos. Para coisas repetidas ou em horário marcado (\"todo dia às 8h me dá as notícias\", \"me lembra às 18h de tomar remédio\"), crie uma rotina com create_routine: tipo lembrete para avisos fixos, tipo tarefa quando precisar pesquisar ou escrever algo na hora; confirme horário e dias ao usuário."
     }
 
     override fun onCleared() { stop(); client.dispatcher.executorService.shutdown(); super.onCleared() }
