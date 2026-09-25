@@ -35,6 +35,7 @@ class AndroidLocalTools(private val context: Context) {
             mapOf("texto" to "Texto esperado", "segundos" to "Tempo máximo, 1 a 15 (padrão 8)"), listOf("texto"), true))
         put(function("scroll_to_text", "Role a tela até um texto aparecer (listas longas, configurações) e devolva onde ele está.",
             mapOf("texto" to "Texto a procurar", "direcao" to "baixo (padrão), cima, esquerda ou direita"), listOf("texto")))
+        put(runStepsDeclaration())
         put(function("look_at_screen", "Veja a tela atual como imagem (fotos, jogos, apps sem controles acessíveis). A imagem chega a você logo antes da resposta; descreva o que vê.", emptyMap()))
         put(function("copy_text", "Copie um texto para a área de transferência do celular.", mapOf("texto" to "Texto a copiar"), listOf("texto")))
         put(function("paste_text", "Cole a área de transferência num campo editável.", mapOf("campo" to "Texto do campo; vazio usa o campo em foco")))
@@ -253,24 +254,104 @@ class AndroidLocalTools(private val context: Context) {
         JSONObject().put("erro", "Não consegui executar esta ação neste aparelho (${failure.javaClass.simpleName}).")
     }
 
-    /** Ferramentas que respondem depois (esperar, rolar até achar, olhar a tela): o Live usa [executeAsync]. */
-    fun runsAsync(name: String) = name in ASYNC
+    /**
+     * Ferramentas que respondem depois: esperar, rolar até achar, olhar a tela, sequências e as ações que
+     * devolvem a tela nova (tela_depois). O Live usa [executeAsync].
+     */
+    fun runsAsync(name: String) = name in ASYNC || name in SETTLE
 
     /** Chame na thread principal; [respond] também é chamado nela. */
     fun executeAsync(name: String, args: JSONObject, respond: (JSONObject) -> Unit) {
-        val service = OsoneAccessibilityService.active
+        val active = OsoneAccessibilityService.active
+        if (name in SETTLE) {
+            // Age e já devolve a tela nova: uma ida e volta a menos com o modelo (sem acessibilidade, só age).
+            val result = execute(name, args)
+            if (result.has("erro") || active == null) respond(result)
+            else if (name == "open_app") active.settle(2500, minMs = 800) { screen -> respond(result.put("tela_depois", screen)) }
+            else active.settle(1500) { screen -> respond(result.put("tela_depois", screen)) }
+            return
+        }
+        val service = active
             ?: return respond(JSONObject().put("erro", "Ative OSTIE em Ajustes > Acessibilidade para controlar outros apps."))
         val done: (JSONObject) -> Unit = { answer ->
             log(name, if (name == "look_at_screen") "print da tela" else describe(name, args), answer)
             respond(answer)
         }
         when (name) {
+            "run_steps" -> runSteps(service, args.optJSONArray("passos") ?: JSONArray(), done)
             "wait_for_ui" -> service.waitFor(args.optString("texto"), args.optInt("segundos", 8), done)
             "scroll_to_text" -> service.scrollToText(args.optString("texto"),
                 args.optString("direcao").ifBlank { "baixo" }, done)
             "look_at_screen" -> service.screenshot(done)
             else -> respond(JSONObject().put("erro", "Ação local não autorizada neste app."))
         }
+    }
+
+    private fun runStepsDeclaration(): JSONObject {
+        val step = JSONObject().put("type", "OBJECT").put("properties", JSONObject()
+            .put("acao", JSONObject().put("type", "STRING").put("description",
+                "tocar, segurar, digitar, colar, rolar, esperar, voltar, inicio, abrir_app ou tocar_xy"))
+            .put("texto", JSONObject().put("type", "STRING").put("description", "Controle a tocar, texto a digitar ou a esperar"))
+            .put("campo", JSONObject().put("type", "STRING").put("description", "Campo para digitar ou colar (vazio = em foco)"))
+            .put("nome", JSONObject().put("type", "STRING").put("description", "App, para abrir_app"))
+            .put("direcao", JSONObject().put("type", "STRING").put("description", "Para rolar: cima, baixo, esquerda ou direita"))
+            .put("ordem", JSONObject().put("type", "INTEGER").put("description", "Qual controle, se houver repetidos"))
+            .put("segundos", JSONObject().put("type", "INTEGER").put("description", "Para esperar: tempo máximo"))
+            .put("x", JSONObject().put("type", "INTEGER").put("description", "Para tocar_xy"))
+            .put("y", JSONObject().put("type", "INTEGER").put("description", "Para tocar_xy"))
+            .put("confirmado_pelo_usuario", JSONObject().put("type", "BOOLEAN")
+                .put("description", "true só depois do sim do usuário a uma ação sensível")))
+            .put("required", JSONArray().put("acao"))
+        return JSONObject().put("name", "run_steps")
+            .put("description", "Faça várias ações seguidas numa só chamada (até 10), sem parar entre elas: é bem mais rápido. " +
+                "Entre os passos o app espera a tela assentar; use esperar com o texto da próxima tela quando ela demorar. " +
+                "Para no primeiro passo que falhar e devolve a tela final (tela_depois).")
+            .put("parameters", JSONObject().put("type", "OBJECT")
+                .put("properties", JSONObject().put("passos", JSONObject().put("type", "ARRAY").put("items", step)))
+                .put("required", JSONArray().put("passos")))
+    }
+
+    /** Executa os passos em ordem, esperando a tela assentar entre eles; para no primeiro erro. */
+    private fun runSteps(service: OsoneAccessibilityService, steps: JSONArray, respond: (JSONObject) -> Unit) {
+        val done = JSONArray()
+        fun finish(failure: JSONObject?) = service.settle { screen ->
+            respond(JSONObject().put("passos_feitos", done).put("tela_depois", screen).apply {
+                if (failure != null) put("erro", failure.optString("erro", "Passo não concluído.")).put("falhou_no_passo", done.length() + 1)
+                    .apply { if (failure.optBoolean("aguardando_confirmacao")) put("aguardando_confirmacao", true) }
+            })
+        }
+        fun next(index: Int) {
+            if (index >= steps.length() || index >= 10) { finish(null); return }
+            val step = steps.optJSONObject(index) ?: JSONObject()
+            val action = normalized(step.optString("acao"))
+            if (action == "esperar") {
+                service.waitFor(step.optString("texto"), step.optInt("segundos", 8)) { found ->
+                    if (found.optBoolean("encontrado")) { done.put("esperar"); next(index + 1) }
+                    else finish(JSONObject().put("erro", "Não apareceu \"${step.optString("texto").take(40)}\" a tempo."))
+                }
+                return
+            }
+            val call: Pair<String, JSONObject> = when (action) {
+                "tocar", "segurar" -> "interact_ui" to JSONObject().put("texto", step.optString("texto"))
+                    .put("acao", action).put("ordem", step.optInt("ordem", 1))
+                    .put("confirmado_pelo_usuario", step.optBoolean("confirmado_pelo_usuario", false))
+                "digitar" -> "type_text" to JSONObject().put("campo", step.optString("campo")).put("texto", step.optString("texto"))
+                "colar" -> "paste_text" to JSONObject().put("campo", step.optString("campo"))
+                "rolar" -> "scroll_screen" to JSONObject().put("direcao", step.optString("direcao").ifBlank { "baixo" })
+                "voltar", "inicio" -> "system_navigation" to JSONObject().put("acao", action)
+                "abrir_app" -> "open_app" to JSONObject().put("nome", step.optString("nome").ifBlank { step.optString("texto") })
+                "tocar_xy" -> "touch_screen" to JSONObject().put("x", step.optInt("x", -1)).put("y", step.optInt("y", -1))
+                    .put("confirmado_pelo_usuario", step.optBoolean("confirmado_pelo_usuario", false))
+                else -> { finish(JSONObject().put("erro", "Passo ${index + 1}: ação desconhecida \"$action\".")); return }
+            }
+            val result = execute(call.first, call.second)
+            if (result.has("erro") || result.optBoolean("aceito_pelo_android", true).not()) { finish(result.apply {
+                if (!has("erro")) put("erro", "O Android não aceitou o passo \"$action\".") }); return }
+            done.put(action + (step.optString("texto").takeIf { it.isNotBlank() }?.let { " ${it.take(30)}" } ?: ""))
+            // Espera a tela assentar antes do próximo passo (abrir app demora mais).
+            if (action == "abrir_app") service.settle(2500, minMs = 800) { next(index + 1) } else service.settle(1200) { next(index + 1) }
+        }
+        next(0)
     }
 
     private fun describe(name: String, args: JSONObject): String = when {
@@ -289,11 +370,14 @@ class AndroidLocalTools(private val context: Context) {
     companion object {
         /** Uma trava para o app inteiro: a confirmação do usuário vale entre chamadas. */
         private val guard = AgentGuard()
-        private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen")
+        private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen", "run_steps")
+        /** Ações que mudam a tela e já devolvem a tela nova. */
+        private val SETTLE = setOf("interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
+            "screen_gesture", "paste_text", "open_app")
         private val LABELS = mapOf("interact_ui" to "Tocar", "type_text" to "Digitar", "scroll_screen" to "Rolar",
             "system_navigation" to "Navegar", "touch_screen" to "Toque na tela", "screen_gesture" to "Gesto",
             "paste_text" to "Colar", "copy_text" to "Copiar", "open_panel" to "Painel", "wait_for_ui" to "Esperar",
-            "scroll_to_text" to "Rolar até achar", "look_at_screen" to "Olhar a tela")
+            "scroll_to_text" to "Rolar até achar", "look_at_screen" to "Olhar a tela", "run_steps" to "Sequência")
     }
 
     private fun normalized(value: String): String = Normalizer.normalize(value.lowercase(java.util.Locale.ROOT), Normalizer.Form.NFD)

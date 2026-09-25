@@ -26,12 +26,12 @@ data class GesturePlan(val strokes: List<StrokeSpec>, val hold: Long = 0) {
             fun inside(px: Int, py: Int) = px in 0 until width && py in 0 until height
             require(inside(cx, cy)) { "Coordenadas fora da tela (${width}x$height)." }
             return when (type.trim().lowercase()) {
-                "toque_duplo", "duplo" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, 40), StrokeSpec(cx, cy, cx, cy, 140, 40)))
-                "segurar" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, 800)))
+                "toque_duplo", "duplo" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, 40), StrokeSpec(cx, cy, cx, cy, 110, 40)))
+                "segurar" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, 600)))
                 "arrastar" -> {
                     require(x != null && y != null && endX != null && endY != null) { "Para arrastar, informe x, y, fim_x e fim_y." }
                     require(inside(endX, endY)) { "Destino fora da tela (${width}x$height)." }
-                    GesturePlan(listOf(StrokeSpec(cx, cy, endX, endY, 0, 700)), hold = 650)
+                    GesturePlan(listOf(StrokeSpec(cx, cy, endX, endY, 0, 450)), hold = 500)
                 }
                 "ampliar", "reduzir" -> {
                     val side = min(width, height)
@@ -45,7 +45,7 @@ data class GesturePlan(val strokes: List<StrokeSpec>, val hold: Long = 0) {
                     val (inner, outer) = if (type.trim().lowercase() == "ampliar") near to far else far to near
                     val strokes = listOf(-1, 1).map { sign ->
                         val (fx, fy) = point(inner, sign); val (tx, ty) = point(outer, sign)
-                        StrokeSpec(fx, fy, tx, ty, 0, 450)
+                        StrokeSpec(fx, fy, tx, ty, 0, 300)
                     }
                     require(strokes.none { it.still }) { "Ponto muito perto da borda para a pinça; use o centro da foto." }
                     GesturePlan(strokes)
