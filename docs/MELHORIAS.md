@@ -36,3 +36,4 @@ Ideias maiores para depois:
 | 0.15.90 | Chat entende "pesquisa"/"busca na internet" (usa a pergunta anterior), mostra por que a pesquisa falhou e, no Groq com GPT OSS, tenta a pesquisa própria do Groq |
 | 0.15.92 | Ler páginas (read_url), Tavily como segunda busca, cache de 10 min, fontes na tela do Live, Live continua o chat, aviso "Pesquisando…", reconexão sem cortar a fala e correção dos engasgos de voz nos modelos 3.x |
 | 0.15.95 | Chat com botão Parar, menu da mensagem (copiar, compartilhar, tentar de novo), formatação (negrito, listas, títulos) e ditado por voz; rotinas que disparam ao chegar notificação |
+| 0.15.97 | "Ei, Ostie" volta a baixar o reconhecedor: aceita o modelo de voz no formato antigo (pt-0.3) e avisa download interrompido |
