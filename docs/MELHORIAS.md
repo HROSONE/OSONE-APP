@@ -4,7 +4,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Na branch, aguardando a próxima janela pública: integração com o Jev (TypeSafe AI), com chave e interruptor em Ajustes > Chaves de API. Conferir o formato da API com a chave real (montado a partir de exemplos de terceiros).
+Conferir o Jev (0.15.101) com a chave real: o formato da API foi montado a partir de exemplos de terceiros.
 
 Do plano de 25/09/2026 (tarde), ficaram:
 
@@ -40,3 +40,4 @@ Ideias maiores para depois:
 | 0.15.95 | Chat com botão Parar, menu da mensagem (copiar, compartilhar, tentar de novo), formatação (negrito, listas, títulos) e ditado por voz; rotinas que disparam ao chegar notificação |
 | 0.15.97 | "Ei, Ostie" volta a baixar o reconhecedor: aceita o modelo de voz no formato antigo (pt-0.3) e avisa download interrompido |
 | 0.15.99 | Várias conversas com busca, criar imagens no chat, boas-vindas no primeiro uso, Ajustes recolhíveis, cópia de segurança de ajustes e rotinas, "Ei, Ostie" pausa com bateria fraca |
+| 0.15.101 | Jev (TypeSafe AI), opcional e desligado por padrão: decide pesquisa e ações no chat Groq/OpenRouter e confere pelo sentido as notificações de rotinas com filtro em frase |
