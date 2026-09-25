@@ -31,7 +31,13 @@ class AndroidLocalTools(private val context: Context) {
         put(function("type_text", "Escreva em um campo editável visível.", mapOf("campo" to "Texto do campo; vazio usa campo em foco", "texto" to "Conteúdo a escrever"), listOf("texto")))
         put(function("scroll_screen", "Role a tela atual.", mapOf("direcao" to "cima ou baixo"), listOf("direcao")))
         put(function("system_navigation", "Volte ou abra início, recentes, notificações ou ajustes rápidos.", mapOf("acao" to "voltar, inicio, recentes, notificacoes ou ajustes_rapidos"), listOf("acao")))
-        put(function("touch_screen", "Toque em coordenadas da tela, ou arraste se informar fim_x e fim_y.", mapOf("x" to "Posição X", "y" to "Posição Y", "fim_x" to "X final opcional", "fim_y" to "Y final opcional"), listOf("x", "y"), true))
+        put(function("screen_gesture", "Gestos na tela: toque_duplo (ex.: ampliar foto), segurar (toque longo num ponto), " +
+            "arrastar (segura e move: ícones, itens, controles deslizantes; exige x, y, fim_x e fim_y), ampliar e reduzir " +
+            "(pinça com dois dedos: zoom em fotos, mapas e páginas). Use coordenadas de inspect_screen; sem x e y, usa o centro da tela.",
+            mapOf("tipo" to "toque_duplo, segurar, arrastar, ampliar ou reduzir", "x" to "Posição X (opcional)",
+                "y" to "Posição Y (opcional)", "fim_x" to "X final, para arrastar", "fim_y" to "Y final, para arrastar",
+                "quantidade" to "Pinça: quanto os dedos andam, 10 a 90 (% da tela); padrão 40"), listOf("tipo"), true))
+        put(function("touch_screen", "Toque rápido em coordenadas da tela, ou deslize rápido (swipe) se informar fim_x e fim_y.", mapOf("x" to "Posição X", "y" to "Posição Y", "fim_x" to "X final opcional", "fim_y" to "Y final opcional"), listOf("x", "y"), true))
     }
 
     private fun function(name: String, description: String, fields: Map<String, String>,
@@ -40,7 +46,7 @@ class AndroidLocalTools(private val context: Context) {
             if (fields.isNotEmpty()) put("parameters", JSONObject().put("type", "OBJECT")
                 .put("properties", JSONObject().apply { fields.forEach { (key, value) ->
                 put(key, JSONObject().put("type", if (key == "incluir_sistema" || key == "ativada") "BOOLEAN"
-                    else if (numbers && key in listOf("x", "y", "fim_x", "fim_y", "percentual", "minutos")) "INTEGER" else "STRING").put("description", value))
+                    else if (numbers && key in listOf("x", "y", "fim_x", "fim_y", "percentual", "minutos", "quantidade")) "INTEGER" else "STRING").put("description", value))
                 } }).put("required", JSONArray(required)))
         }
 
@@ -169,7 +175,8 @@ class AndroidLocalTools(private val context: Context) {
                     .put("brilho_automatico", Settings.System.getInt(context.contentResolver,
                         Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC)
             }
-            "inspect_screen", "check_ui", "interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen" -> {
+            "inspect_screen", "check_ui", "interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
+            "screen_gesture" -> {
                 val service = OsoneAccessibilityService.active
                     ?: return JSONObject().put("erro", "Ative OSTIE em Ajustes > Acessibilidade para controlar outros apps.")
                 when (name) {
@@ -179,6 +186,11 @@ class AndroidLocalTools(private val context: Context) {
                     "type_text" -> service.type(args.optString("campo"), args.optString("texto"))
                     "scroll_screen" -> service.scroll(args.optString("direcao"))
                     "system_navigation" -> service.navigate(args.optString("acao"))
+                    "screen_gesture" -> {
+                        fun number(key: String) = if (args.has(key) && !args.isNull(key)) args.optInt(key, -1) else null
+                        service.multiGesture(args.optString("tipo"), number("x"), number("y"), number("fim_x"),
+                            number("fim_y"), number("quantidade"))
+                    }
                     else -> service.gesture(args.optInt("x", -1), args.optInt("y", -1),
                         args.optInt("fim_x", -1).takeIf { args.has("fim_x") },
                         args.optInt("fim_y", -1).takeIf { args.has("fim_y") })
