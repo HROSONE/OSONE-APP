@@ -1,12 +1,14 @@
 package com.osone.app
 
 import android.app.Application
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import org.json.JSONObject
@@ -15,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -54,6 +57,20 @@ class ScreensTest {
         compose.onNodeWithContentDescription("Fechar visualização").assertExists()
     }
 
+    @Test fun writingCanUndoTheLastChangeAndRequestNeedsText() {
+        val workspace = WritingWorkspace.get(app).apply { clear(); updateContent("Primeira versão") }
+        writingScreen(workspace)
+        compose.onNodeWithContentDescription("Enviar pedido ao OSTIE").assertIsNotEnabled()
+        compose.runOnIdle {
+            workspace.publish(JSONObject().put("titulo", "Texto").put("formato", "text").put("conteudo", "Segunda versão"))
+        }
+        compose.onNodeWithText("Desfazer").performClick()
+        compose.runOnIdle {
+            assertEquals("Primeira versão", workspace.content)
+            assertEquals(false, workspace.canUndo)
+        }
+    }
+
     @Test fun routinesScreenCreatesReminderAndAsksForCalendar() {
         var calendarAsked = false
         var notificationsAsked = false
@@ -81,6 +98,75 @@ class ScreensTest {
             assertEquals(15, saved.minute)
             RoutineStore.get(app).remove(saved.id)
         }
+    }
+
+    @Test fun routineCanBeEditedAndShowsNextRunAndExactAlarmHint() {
+        val store = RoutineStore.get(app)
+        val routine = store.add("Resumo de teste", "Resuma a agenda", 8, 0, emptySet(), reminder = false)
+        var exactAsked = false
+        compose.setContent {
+            OstieTheme(false) {
+                RoutinesScreen(store, AppDiagnostics.get(app), onDiagnostics = {}, onBack = {},
+                    onRunNow = {}, onNeedNotifications = {}, calendarAccess = true, onCalendar = {},
+                    exactAlarms = false, onExactAlarms = { exactAsked = true })
+            }
+        }
+        compose.onNodeWithText("Liberar").performClick()
+        compose.onNodeWithText("Próxima:", substring = true).assertExists()
+        compose.onNodeWithText("Editar").performClick()
+        compose.onNodeWithText("Editar rotina").assertExists()
+        compose.onNodeWithText("Horário (HH:MM)").performTextReplacement("09:30")
+        compose.onNodeWithText("Salvar").assertIsEnabled().performClick()
+        compose.onNodeWithText("09:30 · todos os dias", substring = true).assertExists()
+        compose.runOnIdle {
+            assertTrue(exactAsked)
+            val saved = store.find(routine.id)!!
+            assertEquals(9, saved.hour)
+            assertEquals(30, saved.minute)
+            assertEquals("Resumo de teste", saved.title)
+            store.remove(routine.id)
+        }
+    }
+
+    @Test fun liveScreenRendersIdleAndOpensWriting() {
+        // O orbe respira sem parar: com o relógio automático, o teste nunca ficaria ocioso.
+        compose.mainClock.autoAdvance = false
+        var writing = false
+        var back = false
+        compose.setContent {
+            OstieTheme(false) {
+                LiveScreen(LiveVoiceViewModel(app), CodeAuthor.get(app), AppDiagnostics.get(app), bubblePermission = false,
+                    accessibilityEnabled = false,
+                    phone = PhoneAccess(false, false, false, false, {}, {}, {}, {}),
+                    onAccessibility = {}, onWriting = { writing = true }, onOverlay = {}, onShareScreen = {},
+                    onStopScreen = {}, onCameraToggle = {}, onCameraSwitch = {}, onEnd = {}, onDiagnostics = {},
+                    onBack = { back = true })
+            }
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithText("Pronto para conversar").assertExists()
+        compose.onNodeWithContentDescription("Aba de Escrita").performClick()
+        compose.onNodeWithContentDescription("Voltar ao chat").performClick()
+        compose.mainClock.advanceTimeByFrame()
+        assertTrue(writing)
+        assertTrue(back)
+    }
+
+    @Test fun settingsShowChatActionsForEveryProvider() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val chat = OsoneViewModel(app)
+        compose.setContent {
+            OstieTheme(false) {
+                SettingsScreen(chat, LiveVoiceViewModel(app), CodeAuthor.get(app), AppUpdater(activity), MemoryStore.get(app),
+                    darkMode = false, onMemoryFolder = {}, onDarkMode = {}, onBack = {}, onPickUpdate = {},
+                    diagnostics = AppDiagnostics.get(app), onDiagnostics = {})
+            }
+        }
+        compose.onNodeWithText("Ações no chat escrito").performScrollTo().assertExists()
+        compose.onNodeWithText("No Groq e no OpenRouter", substring = true).assertExists()
+        compose.runOnIdle { chat.updateChatTools(false) }
+        compose.runOnIdle { assertEquals(false, app.getSharedPreferences("osone_config", 0).getBoolean("chat_tools", true)) }
+        compose.runOnIdle { chat.updateChatTools(true) }
     }
 
     @Test fun codeAuthorDialogReportsTheChosenModel() {

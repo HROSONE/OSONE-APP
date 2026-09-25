@@ -119,6 +119,72 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         settings.edit().putBoolean("google_search", value).apply()
     }
 
+    /** API de busca do Google (Cloud Console): chave no cofre, ID do mecanismo (cx) nas preferências. */
+    private val searchSecrets = SecureKeyStore(application, WebSearch.KEY_SLOT)
+    var searchApiConfigured by androidx.compose.runtime.mutableStateOf(WebSearch.configured(application))
+        private set
+    var searchApiCx by androidx.compose.runtime.mutableStateOf(settings.getString(WebSearch.CX, null).orEmpty())
+        private set
+    var searchApiFirst by androidx.compose.runtime.mutableStateOf(settings.getBoolean(WebSearch.PREFER_API, true))
+        private set
+    var searchApiStatus by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+    var searchApiTesting by androidx.compose.runtime.mutableStateOf(false)
+        private set
+
+    /** Chave vazia mantém a já salva (para trocar só o cx). */
+    fun saveSearchApi(key: String, cx: String): Boolean {
+        val cleanCx = cx.trim().take(120)
+        val cleanKey = key.trim()
+        if (cleanCx.isEmpty()) { searchApiStatus = "Informe o ID do mecanismo de pesquisa (cx)."; return false }
+        if (cleanKey.isEmpty() && searchSecrets.read() == null) { searchApiStatus = "Cole a chave da API do Cloud Console."; return false }
+        val saved = try { cleanKey.isEmpty() || (searchSecrets.save(cleanKey) && searchSecrets.read() == cleanKey) }
+            catch (_: Exception) { false }
+        if (!saved) {
+            diagnostics.record("Busca Google", "Falha ao salvar a chave da API de busca.")
+            searchApiStatus = "Não foi possível salvar a chave com segurança. Tente de novo."
+            return false
+        }
+        settings.edit().putString(WebSearch.CX, cleanCx).apply()
+        searchApiCx = cleanCx
+        searchApiConfigured = true
+        searchApiStatus = "Busca Google salva. Toque em Testar para conferir."
+        return true
+    }
+
+    fun removeSearchApi() {
+        searchSecrets.clear()
+        settings.edit().remove(WebSearch.CX).apply()
+        searchApiCx = ""
+        searchApiConfigured = false
+        searchApiStatus = "API de busca removida; a pesquisa volta a usar o Gemini."
+    }
+
+    fun updateSearchApiFirst(value: Boolean) {
+        searchApiFirst = value
+        settings.edit().putBoolean(WebSearch.PREFER_API, value).apply()
+    }
+
+    fun testSearchApi() {
+        val key = searchSecrets.read()
+        if (key == null || searchApiCx.isBlank()) { searchApiStatus = "Salve a chave e o cx antes de testar."; return }
+        searchApiTesting = true
+        searchApiStatus = null
+        viewModelScope.launch {
+            searchApiStatus = try {
+                val result = withContext(Dispatchers.IO) { GoogleSearchApi.search(key, searchApiCx, "previsão do tempo hoje", 3) }
+                val count = result.optJSONArray("resultados")?.length() ?: 0
+                if (count > 0) "Funcionou: $count resultados. Primeiro: ${result.getJSONArray("resultados").getJSONObject(0).optString("titulo").take(80)}"
+                else "A API respondeu, mas sem resultados. Confira se o mecanismo pesquisa a web inteira."
+            } catch (failure: GoogleSearchException) {
+                diagnostics.record("Busca Google", failure.message.orEmpty())
+                failure.message
+            } catch (failure: Exception) {
+                "Sem conexão com a busca Google (${failure.javaClass.simpleName})."
+            } finally { searchApiTesting = false }
+        }
+    }
+
     fun updateFallback(value: Boolean) {
         fallback = value
         settings.edit().putBoolean("chat_fallback", value).apply()
@@ -214,7 +280,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
 
     private val agentTools by lazy { AgentTools(getApplication(), background = false) }
 
-    /** Ferramentas do app (alarmes, agenda, rotinas, memória, mensagens) também no chat escrito com Gemini. */
+    /** Ferramentas do app (alarmes, agenda, rotinas, memória, mensagens) também no chat escrito, com qualquer provedor. */
     var chatTools by androidx.compose.runtime.mutableStateOf(settings.getBoolean("chat_tools", true))
         private set
 
@@ -271,7 +337,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 TextModel.gemini(key, choice, snapshot, thinkingMode, part,
                                     chatSystem(GeminiClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "", tools != null, prompt),
-                                    45_000, googleSearch, tools, onDowngrade = { diagnostics.record("Chat Gemini", it) },
+                                    45_000, googleSearch, tools, searchApi = WebSearch.preferApi(getApplication()),
+                                    onDowngrade = { diagnostics.record("Chat Gemini", it) },
                                     onPartial = stream)
                             }
                             lastAnswerModel = choice
@@ -285,13 +352,19 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     var modelId = if (selectedProvider == ChatProvider.GROQ) groqModelId else openRouterModel
                     var retried = false
+                    val tools = if (chatTools) agentTools else null
+                    // Sem Pesquisa Google embutida: a ferramenta web_search pesquisa com a chave Gemini, se houver.
+                    val functions = tools?.declarations(webSearch = googleSearch && WebSearch.available(getApplication()))
                     while (true) {
                         val currentLabel = "${selectedProvider.label} · $modelId"
                         activeTextModel = currentLabel
                         try {
                             response = withContext(Dispatchers.IO) {
                                 ChatCompletionClient().streamAnswer(selectedProvider, key, modelId, snapshot,
-                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM, query = prompt)) { partial ->
+                                    chatSystem(ChatCompletionClient.DEFAULT_SYSTEM + if (tools != null) TOOLS_GUIDE else "",
+                                        tools != null, prompt),
+                                    functions = functions, runTool = tools?.let { it::run },
+                                    onDowngrade = { diagnostics.record("Chat ${selectedProvider.label}", it) }) { partial ->
                                     main.post { if (busy && activeTextModel == currentLabel) streamingText = partial }
                                 }
                             }

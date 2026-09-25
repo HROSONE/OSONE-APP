@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -22,6 +23,8 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel, codeAut
     var preview by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var allowNetwork by remember { mutableStateOf(false) }
+    var request by remember { mutableStateOf("") }
+    val focus = LocalFocusManager.current
     val hasContent = workspace.content.isNotBlank()
     val html = workspace.format == "html"
     // Documento HTML/SVG recém-enviado pelo OSTIE abre direto no preview.
@@ -46,6 +49,8 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel, codeAut
             FilterChip(selected = html, onClick = { workspace.updateFormat(if (html) "text" else "html") },
                 label = { Text("HTML / SVG") }, leadingIcon = htmlMark)
             Spacer(Modifier.weight(1f))
+            if (workspace.canUndo && codeAuthor.writingWith == null)
+                TextButton(onClick = { workspace.undo(); preview = null }) { Text("Desfazer") }
             if (preview == null) BarIcon(OstieIcons.Play, "Visualizar HTML ou SVG",
                 { preview = DocumentPreview.page(workspace.content) },
                 enabled = (html || DocumentPreview.looksLikeMarkup(workspace.content)) && hasContent, tint = MaterialTheme.colorScheme.primary)
@@ -127,9 +132,27 @@ fun WritingScreen(workspace: WritingWorkspace, live: LiveVoiceViewModel, codeAut
                     modifier = Modifier.fillMaxSize(), shape = MaterialTheme.shapes.large,
                     placeholder = {
                         Text(if (live.connected) "Peça ao OSTIE por voz: escreva um texto ou crie uma página HTML aqui."
-                            else "Escreva aqui, ou inicie o Live e peça ao OSTIE um texto ou código.")
+                            else "Escreva aqui, peça abaixo ao OSTIE ou inicie o Live e peça por voz.")
                     })
             }
+        }
+        // Pedido digitado: o modelo de texto escreve algo novo ou altera só o que for pedido no documento atual.
+        val idle = codeAuthor.writingWith == null
+        fun sendRequest() {
+            if (request.isBlank() || !idle) return
+            preview = null
+            codeAuthor.edit(request)
+            request = ""
+            focus.clearFocus()
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = request, onValueChange = { request = it.take(4_000) }, enabled = idle,
+                modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.large, maxLines = 4,
+                placeholder = { Text(if (hasContent) "Peça uma mudança (ex.: deixe o botão azul)"
+                    else "Peça um texto ou código (ex.: jogo da velha em HTML)") })
+            BarIcon(OstieIcons.Send, "Enviar pedido ao OSTIE", { sendRequest() },
+                enabled = idle && request.isNotBlank(), tint = MaterialTheme.colorScheme.primary)
         }
     }
     if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false },

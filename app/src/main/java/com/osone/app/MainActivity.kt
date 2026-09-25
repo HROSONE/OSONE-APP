@@ -2,6 +2,7 @@ package com.osone.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -50,6 +51,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         contactsGranted = granted
     }
     private var calendarGranted by mutableStateOf(false)
+    /** Android 12+: sem "Alarmes e lembretes", as rotinas rodam numa janela de até 10 minutos. */
+    private var exactAlarms by mutableStateOf(true)
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         calendarGranted = granted
     }
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var showLive by mutableStateOf(false)
     private var showWriting by mutableStateOf(false)
     private var showRoutines by mutableStateOf(false)
+    private var showSettings by mutableStateOf(false)
     private val routines by lazy { RoutineStore.get(application) }
     private var permissionError by mutableStateOf(false)
     private var darkMode by mutableStateOf(false)
@@ -131,6 +135,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         when (intent?.action) {
             ACTION_LIVE, Intent.ACTION_ASSIST -> { showWriting = false; requestLive() }
             ACTION_WRITING -> { showLive = false; showRoutines = false; showWriting = true }
+            ACTION_ROUTINES -> { showLive = false; showWriting = false; showSettings = false; showRoutines = true }
             Intent.ACTION_SEND -> {
                 showLive = false; showWriting = false; showRoutines = false
                 intent.getStringExtra(Intent.EXTRA_TEXT)?.let(viewModel::receiveShared)
@@ -139,6 +144,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     else intent.getParcelableExtra(Intent.EXTRA_STREAM)
                 stream?.let(viewModel::attach)
             }
+        }
+    }
+
+    private fun requestExactAlarms() {
+        if (Build.VERSION.SDK_INT < 31) return
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
     }
 
@@ -175,7 +189,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (savedInstanceState == null) handleIntent(intent)
         RoutineScheduler.scheduleAll(this)
         setContent {
-            var showSettings by remember { mutableStateOf(false) }
             var readAloud by remember { mutableStateOf(false) }
             var showDiagnostics by remember { mutableStateOf(false) }
             // Código pedido por voz aparece sendo escrito na Aba de Escrita, mesmo sem perguntar.
@@ -245,7 +258,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                     Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         }, calendarAccess = calendarGranted,
-                        onCalendar = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) })
+                        onCalendar = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
+                        exactAlarms = exactAlarms, onExactAlarms = ::requestExactAlarms)
                     else if (showWriting) WritingScreen(writing, live, codeAuthor, diagnostics,
                         onDiagnostics = { showDiagnostics = true },
                         onBack = { showWriting = false },
@@ -325,6 +339,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         notificationsAccess = OstieNotificationListener.enabled(this)
         contactsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
         calendarGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+        exactAlarms = Build.VERSION.SDK_INT < 31 || getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
         memory.refresh() // Volta das Configurações com a permissão da pasta, ou arquivo editado fora do app.
         RoutineStore.get(this).restoreFromFolder()
         WakeWord.resume(this) // Volta a escutar depois de reiniciar o celular ou atualizar o app.
@@ -338,6 +353,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     companion object {
         const val ACTION_LIVE = "com.osone.app.action.LIVE"
         const val ACTION_WRITING = "com.osone.app.action.WRITING"
+        const val ACTION_ROUTINES = "com.osone.app.action.ROUTINES"
     }
 
     override fun onDestroy() { chatVoice.stop(); speech?.stop(); speech?.shutdown(); super.onDestroy() }

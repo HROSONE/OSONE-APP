@@ -72,6 +72,26 @@ object RoutineSchedule {
         else -> days.sorted().joinToString(", ") { day -> names.entries.first { it.value == day }.key }
     }
 
+    private val shortDays = listOf("dom", "seg", "ter", "qua", "qui", "sex", "sáb")
+
+    /** Quando a rotina roda de novo, em linguagem simples: "hoje 08:00", "amanhã 08:00", "sex 08:00" ou "12/10 08:00". */
+    fun whenLabel(now: Long, at: Long): String {
+        fun startOfDay(time: Long) = Calendar.getInstance().apply {
+            timeInMillis = time
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val target = Calendar.getInstance().apply { timeInMillis = at }
+        val time = "%02d:%02d".format(target.get(Calendar.HOUR_OF_DAY), target.get(Calendar.MINUTE))
+        // Arredonda: dias com horário de verão têm 23 ou 25 horas.
+        val days = Math.round((startOfDay(at) - startOfDay(now)) / 86_400_000.0)
+        return when (days) {
+            0L -> "hoje $time"
+            1L -> "amanhã $time"
+            in 2L..6L -> "${shortDays[target.get(Calendar.DAY_OF_WEEK) - 1]} $time"
+            else -> "%02d/%02d %s".format(target.get(Calendar.DAY_OF_MONTH), target.get(Calendar.MONTH) + 1, time)
+        }
+    }
+
     fun next(now: Long, hour: Int, minute: Int, days: Set<Int>): Long {
         val calendar = Calendar.getInstance().apply {
             timeInMillis = now
@@ -131,6 +151,7 @@ class RoutineStore private constructor(private val context: Context) {
         val json = JSONArray(routines.map { it.toJson() }).toString()
         preferences.edit().putString("list", json).apply()
         memory.writeShared(FILE, JSONArray(routines.map { it.toJson() }).toString(2))
+        OstieWidget.refresh(context)
     }
 
     fun find(id: String) = routines.firstOrNull { it.id == id }
@@ -146,6 +167,21 @@ class RoutineStore private constructor(private val context: Context) {
         persist()
         RoutineScheduler.schedule(context, routine)
         return routine
+    }
+
+    /** Troca nome, instrução, horário, dias ou tipo; a rotina mantém o id e o estado (ativa ou pausada). */
+    fun update(id: String, title: String, instruction: String, hour: Int, minute: Int, days: Set<Int>, reminder: Boolean): Routine {
+        require(hour in 0..23 && minute in 0..59) { "Horário inválido." }
+        require(title.isNotBlank()) { "Dê um nome à rotina." }
+        require(instruction.isNotBlank()) { "Descreva o que a rotina faz." }
+        val current = find(id) ?: throw IllegalArgumentException("Rotina não encontrada.")
+        val updated = current.copy(title = title.trim().take(60), instruction = instruction.trim().take(1500),
+            hour = hour, minute = minute, days = days, reminder = reminder)
+        routines = routines.map { if (it.id == id) updated else it }
+        persist()
+        RoutineScheduler.cancel(context, current)
+        RoutineScheduler.schedule(context, updated)
+        return updated
     }
 
     fun setEnabled(id: String, enabled: Boolean) {
@@ -224,6 +260,7 @@ class RoutineAlarmReceiver : BroadcastReceiver() {
         if (!routine.enabled) return
         RoutineScheduler.schedule(context, routine)
         RoutineScheduler.runNow(context, routine)
+        OstieWidget.refresh(context) // "Próxima" passa para a ocorrência seguinte.
     }
 }
 
@@ -244,13 +281,13 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             notify(context, routine, routine.instruction)
             return Result.success()
         }
+        val tools = AgentTools(context, background = true)
         return try {
             val now = SimpleDateFormat("EEEE, dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())
             val memory = MemoryStore.get(context).apply { refresh() }
             val system = GeminiClient.DEFAULT_SYSTEM + UserProfile.get(context).identity(canSave = false) + memory.promptBlock() +
                 " Você está executando uma rotina agendada, sem conversa: entregue direto o resultado, curto, " +
                 "claro e pronto para ler numa notificação (no máximo 10 linhas), sem perguntas de volta."
-            val tools = AgentTools(context, background = true)
             val answer = withContext(Dispatchers.IO) {
                 TextModel.ask(context, "Agora é $now. Rotina \"${routine.title}\": ${routine.instruction}", system + TOOLS_GUIDE,
                     googleSearch = context.getSharedPreferences("osone_config", 0).getBoolean("google_search", true),
@@ -260,7 +297,8 @@ class RoutineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             RoutineStore.get(context).pushInbox(routine.title, answer)
             Result.success()
         } catch (failure: Exception) {
-            if (runAttemptCount < 2) return Result.retry()
+            // Depois de usar ferramentas (ex.: anotar na memória), repetir faria tudo de novo.
+            if (runAttemptCount < 2 && tools.used == 0) return Result.retry()
             AppDiagnostics.get(context).record("Rotina", "${routine.title}: ${failure.javaClass.simpleName}.")
             notify(context, routine, "Não consegui executar agora (${failure.message?.take(80) ?: "falha de rede"}).")
             Result.success()

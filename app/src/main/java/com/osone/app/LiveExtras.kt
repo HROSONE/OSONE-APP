@@ -10,18 +10,35 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Pesquisa na web para o Live quando o modelo de voz não pode usar a Pesquisa Google embutida
- * (ex.: Live 3.x no nível gratuito). O modelo de texto Gemini pesquisa e devolve um resumo com fontes.
+ * Pesquisa na web (ferramenta web_search) para o Live, o chat e as rotinas. Usa a API de busca do Google
+ * (chave do Cloud Console + ID do mecanismo) quando configurada em Ajustes; senão, ou se ela falhar, o
+ * modelo de texto Gemini pesquisa com a Pesquisa Google embutida e devolve um resumo com fontes.
  */
 object WebSearch {
     const val NAME = "web_search"
+    /** Chave da API de busca (cofre), ID do mecanismo e preferência pela API em vez da Pesquisa Google do Gemini. */
+    const val KEY_SLOT = "key_google_search"
+    const val CX = "google_search_cx"
+    const val PREFER_API = "google_search_api"
     private const val SYSTEM = "Você pesquisa na web para um assistente de voz. Responda em português do Brasil, " +
         "em no máximo 6 frases objetivas, com números, datas e nomes exatos encontrados. Se não encontrar, diga isso."
+
+    private fun preferences(context: Context) = context.getSharedPreferences("osone_config", 0)
+
+    /** Chave e cx salvos da API de busca do Google. */
+    fun configured(context: Context): Boolean =
+        preferences(context).getString(CX, null).orEmpty().isNotBlank() && SecureKeyStore(context, KEY_SLOT).read() != null
+
+    /** A API de busca substitui a Pesquisa Google embutida do Gemini (Live e chat usam web_search). */
+    fun preferApi(context: Context): Boolean = configured(context) && preferences(context).getBoolean(PREFER_API, true)
+
+    /** Há como pesquisar: API de busca ou chave Gemini. */
+    fun available(context: Context): Boolean = configured(context) || SecureKeyStore(context).read() != null
 
     fun declaration(): JSONObject = JSONObject()
         .put("name", NAME)
         .put("description", "Pesquise na web (Google) informações atuais ou que você não sabe com certeza: notícias, " +
-            "preços, placares, clima, horários, lançamentos, fatos recentes. Retorna um resumo com as fontes.")
+            "preços, placares, clima, horários, lançamentos, fatos recentes. Retorna resultados ou um resumo com as fontes.")
         .put("parameters", JSONObject().put("type", "OBJECT")
             .put("properties", JSONObject().put("consulta", JSONObject().put("type", "STRING")
                 .put("description", "O que pesquisar, com contexto (lugar, data, nomes)")))
@@ -32,30 +49,41 @@ object WebSearch {
         val query = args.optString("consulta").trim().take(500)
         if (query.isEmpty()) { respond(JSONObject().put("erro", "Informe o que pesquisar.")); return }
         Thread({
-            val result = try {
-                val key = SecureKeyStore(context).read() ?: error("Chave Gemini não configurada.")
-                val preferences = context.getSharedPreferences("osone_config", 0)
-                val choices = ChatModel.candidates(ChatModel.fromId(preferences.getString("model", null)), true)
-                var answer: String? = null
-                var lastError: Exception? = null
-                for (choice in choices) {
-                    try {
-                        answer = GeminiClient().streamAnswer(key, choice, listOf(ChatMessage("user", "Pesquise na web: $query")),
-                            ThinkingMode.FAST, null, SYSTEM, 60_000, googleSearch = true) { }
-                        break
-                    } catch (failure: GeminiHttpException) {
-                        // 400 = modelo sem pesquisa; 404/429/5xx = indisponível ou sem cota: tenta o próximo.
-                        lastError = failure
-                        if (!failure.allowsFallback && failure.status != 400) throw failure
-                    }
+            val diagnostics = AppDiagnostics.get(context)
+            var result: JSONObject? = null
+            if (configured(context)) {
+                try {
+                    result = GoogleSearchApi.search(SecureKeyStore(context, KEY_SLOT).read().orEmpty(),
+                        preferences(context).getString(CX, null).orEmpty(), query)
+                } catch (failure: Exception) {
+                    diagnostics.record("Busca Google", if (failure is GoogleSearchException) failure.message.orEmpty()
+                        else "Falha de rede (${failure.javaClass.simpleName}).")
                 }
-                JSONObject().put("resultado", (answer ?: throw (lastError ?: IllegalStateException("sem resposta"))).take(3_000))
-            } catch (failure: Exception) {
-                AppDiagnostics.get(context).record("Pesquisa (Live)", failure.message?.take(120) ?: failure.javaClass.simpleName)
-                JSONObject().put("erro", "Pesquisa indisponível agora. Diga ao usuário que não conseguiu pesquisar.")
             }
-            respond(result)
+            respond(result ?: try {
+                JSONObject().put("resultado", gemini(context, query).take(3_000))
+            } catch (failure: Exception) {
+                diagnostics.record("Pesquisa", failure.message?.take(120) ?: failure.javaClass.simpleName)
+                JSONObject().put("erro", "Pesquisa indisponível agora. Diga ao usuário que não conseguiu pesquisar.")
+            })
         }, "ostie-web-search").start()
+    }
+
+    private fun gemini(context: Context, query: String): String {
+        val key = SecureKeyStore(context).read() ?: error("Chave Gemini não configurada.")
+        val choices = ChatModel.candidates(ChatModel.fromId(preferences(context).getString("model", null)), true)
+        var lastError: Exception? = null
+        for (choice in choices) {
+            try {
+                return GeminiClient().streamAnswer(key, choice, listOf(ChatMessage("user", "Pesquise na web: $query")),
+                    ThinkingMode.FAST, null, SYSTEM, 60_000, googleSearch = true) { }
+            } catch (failure: GeminiHttpException) {
+                // 400 = modelo sem pesquisa; 404/429/5xx = indisponível ou sem cota: tenta o próximo.
+                lastError = failure
+                if (!failure.allowsFallback && failure.status != 400) throw failure
+            }
+        }
+        throw lastError ?: IllegalStateException("sem resposta")
     }
 }
 

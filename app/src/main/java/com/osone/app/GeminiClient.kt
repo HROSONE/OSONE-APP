@@ -21,9 +21,10 @@ class GeminiClient {
         runTool: ((String, JSONObject) -> JSONObject)? = null,
         onPartial: (String) -> Unit): String {
         val contents = JSONArray()
-        history.takeLast(12).forEachIndexed { index, message ->
+        val window = ChatContext.window(history, ChatContext.GEMINI_CHARS, ChatContext.GEMINI_MESSAGES)
+        window.forEachIndexed { index, message ->
             val parts = JSONArray().put(JSONObject().put("text", message.text))
-            if (attachment != null && index == history.takeLast(12).lastIndex && message.role == "user")
+            if (attachment != null && index == window.lastIndex && message.role == "user")
                 parts.put(attachment)
             contents.put(JSONObject().put("role", message.role).put("parts", parts))
         }

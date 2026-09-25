@@ -8,10 +8,11 @@ Converse com o usuário em português do Brasil, em linguagem simples. Para melh
 
 - `MainActivity.kt`: navegação entre telas, permissões e intents.
 - Telas: `ChatScreen`, `LiveScreen` (painel do Live), `WritingScreen`, `RoutinesScreen`, `SettingsScreen`; componentes e tema em `OstieUi.kt`, ícones em `OstieIcons.kt`.
-- Live: `LiveVoiceViewModel` (setup, níveis de configuração adaptativos, retomada, legendas, ferramentas), `LiveAudioEngine` + `EchoCalibration` (áudio e eco), `LiveModels`, `LiveCloseReason`, `LiveExtras` (web_search e transcrição para o chat), `LiveSessionService`.
-- Texto: `GeminiClient` (SSE, pesquisa Google, chamadas de função em laço), `ChatCompletionClient`, `TextModel` (modelo "cérebro" e combinações de ferramentas), `OsoneViewModel` (chat).
+- Live: `LiveVoiceViewModel` (setup, níveis de configuração adaptativos, retomada, legendas, ferramentas), `LiveAudioEngine` + `EchoCalibration` (áudio e eco), `LiveModels`, `LiveCloseReason`, `LiveExtras` (web_search: API de busca do Google em `GoogleSearchApi` ou Gemini; transcrição para o chat), `LiveSessionService`.
+- Texto: `GeminiClient` (SSE, pesquisa Google, chamadas de função em laço), `ChatCompletionClient` (Groq e OpenRouter, também com ferramentas; formato em `OpenAiTools`), `ChatContext` (quantas mensagens anteriores vão ao modelo), `TextModel` (modelo "cérebro" e combinações de ferramentas), `OsoneViewModel` (chat).
 - Ações: `PhoneActions` (intents diretas), `AndroidLocalTools` (apps, ajustes, acessibilidade), `AgentTools` (ferramentas para chat e rotinas).
-- Memória e rotinas: `MemoryStore`, `MemoryOrganizer`, `Routines`, `UserProfile`.
+- Memória e rotinas: `MemoryStore`, `MemoryOrganizer`, `Routines` (agenda pura em `RoutineSchedule`), `UserProfile`.
+- Tela inicial: `OstieWidget` (Falar e próxima rotina), `OstieTileService`, atalhos em `res/xml/shortcuts.xml`.
 - Atualização: `AppUpdater` (`UpdateFeed`), `UpdateWork`.
 
 ## Validar sem SDK Android
@@ -29,7 +30,20 @@ O ambiente não tem SDK Android (dl.google.com é bloqueado); quem compila é a 
 - Publicação: pré-lançamento `ostie-v<versão>` e release fixo `ostie-latest` com `latest.json` no repositório público `HROSONE/OSTIE-AI-releases`. O app lê `https://github.com/HROSONE/OSTIE-AI-releases/releases/download/ostie-latest/latest.json` (com os endereços antigos, `HROSONE/OSONE-AI-releases` e `zerobob623-bit/OSONE-AI-releases`, como reserva).
 - `versionCode` = 100 + número da execução; `versionName` = `0.15.<versionCode - 100>`.
 - Depois de mesclar, confira o `latest.json` (versão nova) e o SHA-256 do APK publicado.
-- Minutos de CI são limitados: agrupe mudanças num PR; mudanças só em `*.md` e `docs/` não rodam CI.
+- Minutos de CI são limitados enquanto o repositório é privado: agrupe mudanças num PR e siga o protocolo "janela pública" abaixo; mudanças só em `*.md` e `docs/` não rodam CI.
+
+## Protocolo "janela pública" (minutos de CI)
+
+Repositório privado tem cota de minutos do Actions; público não tem limite. Então o `OSONE-APP` fica **privado** e só abre durante a CI de um lote grande:
+
+1. Acumule as mudanças na branch da sessão **sem abrir PR** (push em branch não roda CI).
+2. Antes de pedir a abertura: rode os testes JVM, releia o diff e confira que nada sensível entrou no histórico (`git grep` por `AIza`, `gsk_`, `sk-or-`, `ghp_`, `BEGIN PRIVATE KEY`, arquivos `.jks`/`.keystore`/`.env`).
+3. Peça ao usuário: **Settings → General → Danger Zone → Change visibility → Public** (Claude não consegue mudar a visibilidade).
+4. Com o repositório público: abra o PR, acompanhe a CI até ficar verde, mescle, espere a publicação na `main` e confira `latest.json` e o SHA-256 do APK.
+5. Avise na hora para voltar a **Private** (mesmo caminho). A janela deve durar só o necessário (cerca de 15 a 30 minutos).
+6. Se algo travar no meio, fechar o repositório antes de continuar: a branch fica guardada e a CI é retomada na próxima janela.
+
+Enquanto está público, qualquer pessoa pode ver e copiar o código (e o e-mail dos commits); cópias (forks) feitas nessa janela continuam públicas depois. Por isso nada de segredos no repositório, nunca.
 
 ## Regras
 

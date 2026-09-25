@@ -4,13 +4,27 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Ideias levantadas e ainda não feitas (da mais valiosa para a menos):
+Programado na branch `claude/aprimorar-71toz4` (lotes 1, 2 e 3 do plano de 25/09/2026). **Falta compilar e publicar**: os minutos do GitHub Actions acabaram; quando voltarem, abrir um PR único com tudo, corrigir o que a CI apontar e publicar. Itens:
 
-- **Ferramentas no chat com Groq e OpenRouter**: hoje só o Gemini usa as ações do app no chat escrito; os dois aceitam o formato de ferramentas da OpenAI.
-- **Widget na tela inicial**: iniciar o Live ou ver a próxima rotina sem abrir o app.
+1. Ações no chat escrito com Groq e OpenRouter (ferramentas no formato OpenAI, até 5 rodadas; responde sem elas se o modelo recusar).
+2. Rotinas com Groq/OpenRouter leem agenda e notificações e deixam botões.
+3. Rotina que falha depois de usar ferramenta não é repetida.
+4. Live relê a memória a cada conexão.
+5. Editar rotina existente.
+6. Cada rotina mostra quando roda de novo.
+7. Rotinas no horário exato: `USE_EXACT_ALARM` (Android 13+) e aviso com botão "Liberar" quando o Android não permite.
+8. Botão "Copiar" nos últimos resultados das rotinas.
+9. Contexto do chat por tamanho de texto (`ChatContext`): Gemini até 40 mensagens/60 mil caracteres; Groq e OpenRouter até 20/12 mil.
+10. Widget na tela inicial: botão Falar e próxima rotina (abre a aba Rotinas).
+11. Testes de tela do Live (relógio manual por causa do orbe) e dos Ajustes, e da edição de rotina.
+12. Aba de Escrita com campo de pedido: o modelo de texto escreve algo novo ou altera só o que foi pedido no documento atual; botão "Desfazer" (também depois de apagar).
+13. API de busca do Google (Custom Search: chave do Cloud Console + cx) em Ajustes > Pesquisa Google, com botão Testar; chat, Live e rotinas pesquisam por ela e usam o Gemini se ela falhar.
+
+Ideias maiores para depois:
+
+- **Busca que sobreviva a 2027**: o Google encerra a Custom Search JSON API em 01/01/2027. Candidatas grátis sem cartão: Tavily (1.000 créditos/mês) e Exa; Serper tem 2.500 buscas únicas (resultados do Google). `GoogleSearchApi` e `WebSearch` já isolam o provedor.
+
 - **Rotinas por evento**: disparar ao carregar, ao chegar em casa (Wi-Fi) ou ao receber notificação de um app, além do horário.
-- **Memória usada pelo Live em tempo real**: reler a memória ao reconectar a sessão e após uma organização automática.
-- **Testes de tela do Live e dos Ajustes**: exigem controlar as animações infinitas (`mainClock.autoAdvance = false`).
 
 ## Feitos
 

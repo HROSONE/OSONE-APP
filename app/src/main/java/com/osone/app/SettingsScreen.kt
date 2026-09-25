@@ -70,7 +70,9 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     if (live.active != null) live.start() // O Live só recebe ferramentas ao conectar.
                 }, "Notícias, preços, clima e fatos recentes. Usa a mesma chave Gemini, no chat escrito (Gemini) e no Live. Respostas do chat mostram as fontes.")
                 if (viewModel.provider != ChatProvider.GEMINI)
-                    Hint("Groq e OpenRouter não têm Pesquisa Google; no chat escrito ela só funciona com Gemini.")
+                    Hint("Groq e OpenRouter não têm Pesquisa Google própria: com as ações no chat ligadas, eles pesquisam pela API de busca ou pela chave Gemini.")
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                SearchApiFields(viewModel, onChanged = { if (live.active != null) live.start() })
             }
             SectionCard("Chat escrito", OstieIcons.Chat) {
                 OptionPicker("Provedor", viewModel.provider.label, ChatProvider.entries, { it.label }, viewModel::selectProvider)
@@ -83,7 +85,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     Hint("Ligue o alto-falante no topo do chat para ouvir as respostas. Usa a chave Gemini; se ela falhar, a voz do Android lê no lugar.")
                 }
                 SettingSwitch("Ações no chat escrito", viewModel.chatTools, viewModel::updateChatTools,
-                    "Com Gemini, o chat cria alarmes, rotinas e anotações, lê a agenda e as notificações e prepara mensagens, como no Live.")
+                    "O chat cria alarmes, rotinas e anotações, lê a agenda e as notificações e prepara mensagens, como no Live. No Groq e no OpenRouter, depende de o modelo aceitar ferramentas; se não aceitar, ele só responde.")
                 when (viewModel.provider) {
                     ChatProvider.GEMINI -> {
                         OptionPicker("Modelo", viewModel.selectedModel.label, ChatModel.entries, { it.label }, viewModel::selectModel)
@@ -208,6 +210,42 @@ private fun ProviderKeyField(viewModel: OsoneViewModel, provider: ChatProvider) 
         }
         if (saved) TextButton(onClick = { viewModel.removeKey(provider) }) { Text("Remover") }
     }
+}
+
+/** API de busca do Google (Custom Search): chave do Cloud Console e ID do mecanismo de pesquisa (cx). */
+@Composable
+private fun SearchApiFields(viewModel: OsoneViewModel, onChanged: () -> Unit) {
+    var key by remember { mutableStateOf("") }
+    var cx by remember(viewModel.searchApiCx) { mutableStateOf(viewModel.searchApiCx) }
+    val saved = viewModel.searchApiConfigured
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("API de busca do Google", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(if (saved) "Salva" else "Opcional", style = MaterialTheme.typography.labelMedium,
+            color = if (saved) OstieColors.Success else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Hint("Chave da Custom Search API (Cloud Console) e ID do mecanismo (cx). Grátis até 100 buscas por dia; o Google encerra esta API em 01/01/2027.")
+    OutlinedTextField(value = key, onValueChange = { key = it },
+        placeholder = { Text(if (saved) "Cole uma nova chave para substituir" else "Chave da API") },
+        visualTransformation = PasswordVisualTransformation(), singleLine = true,
+        shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(value = cx, onValueChange = { cx = it.trim() }, singleLine = true,
+        label = { Text("ID do mecanismo (cx)") }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button(onClick = { if (viewModel.saveSearchApi(key, cx)) { key = ""; onChanged() } },
+            enabled = cx.isNotBlank() && (key.isNotBlank() || (saved && cx != viewModel.searchApiCx))) {
+            Text(if (saved) "Atualizar" else "Salvar")
+        }
+        if (saved) {
+            OutlinedButton(onClick = viewModel::testSearchApi, enabled = !viewModel.searchApiTesting) {
+                Text(if (viewModel.searchApiTesting) "Testando…" else "Testar")
+            }
+            TextButton(onClick = { viewModel.removeSearchApi(); onChanged() }) { Text("Remover") }
+        }
+    }
+    if (saved) SettingSwitch("Usar no lugar da pesquisa do Gemini", viewModel.searchApiFirst,
+        { viewModel.updateSearchApiFirst(it); onChanged() },
+        "Ligado: chat, Live e rotinas pesquisam por esta API (e usam o Gemini se ela falhar). Desligado: ela só entra quando o Gemini não puder pesquisar.")
+    viewModel.searchApiStatus?.let { Hint(it) }
 }
 
 @Composable

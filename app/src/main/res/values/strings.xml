@@ -5,4 +5,7 @@
     <string name="shortcut_live_long">Falar com o OSTIE</string>
     <string name="shortcut_writing">Aba de Escrita</string>
     <string name="notification_listener_label">OSTIE · leitura de notificações</string>
+    <string name="widget_talk">Falar</string>
+    <string name="widget_no_routines">Nenhuma rotina agendada</string>
+    <string name="widget_description">Fale com o OSTIE e veja a próxima rotina</string>
 </resources>

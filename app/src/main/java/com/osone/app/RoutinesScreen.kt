@@ -1,5 +1,8 @@
 package com.osone.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -17,9 +21,12 @@ import java.util.Locale
 @Composable
 fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnostics: () -> Unit,
     onBack: () -> Unit, onRunNow: (Routine) -> Unit, onNeedNotifications: () -> Unit,
-    calendarAccess: Boolean, onCalendar: () -> Unit) {
+    calendarAccess: Boolean, onCalendar: () -> Unit, exactAlarms: Boolean = true, onExactAlarms: () -> Unit = {}) {
     var creating by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf<Routine?>(null) }
+    val context = LocalContext.current
+    val now = System.currentTimeMillis()
     val format = remember { SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")) }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         OstieTopBar(title = "Rotinas", subtitle = "${store.routines.count { it.enabled }} ativas",
@@ -29,11 +36,20 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                if (creating) RoutineForm(onCancel = { creating = false }, onSave = { title, instruction, hour, minute, days, reminder ->
+                if (creating) RoutineForm(initial = null, onCancel = { creating = false }, onSave = { title, instruction, hour, minute, days, reminder ->
                     store.add(title, instruction, hour, minute, days, reminder)
                     creating = false
                     onNeedNotifications()
-                }) else Button(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) { Text("Nova rotina") }
+                }) else Button(onClick = { editing = null; creating = true }, modifier = Modifier.fillMaxWidth()) { Text("Nova rotina") }
+            }
+            // Sem "Alarmes e lembretes", o Android pode atrasar a rotina em até 10 minutos.
+            if (!exactAlarms && store.routines.any { it.enabled }) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("As rotinas podem atrasar até 10 minutos. Libere \"Alarmes e lembretes\" para o horário exato.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f))
+                    TextButton(onClick = onExactAlarms) { Text("Liberar") }
+                }
             }
             if (!calendarAccess) item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -46,7 +62,12 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
                 Hint("Nenhuma rotina ainda. Crie aqui ou peça no Live: \"todo dia às 8h me diz minha agenda e as notícias\" ou \"me lembra às 18h de tomar o remédio\".")
             }
             items(store.routines, key = { it.id }) { routine ->
-                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,
+                if (editing == routine.id) RoutineForm(initial = routine, onCancel = { editing = null },
+                    onSave = { title, instruction, hour, minute, days, reminder ->
+                        store.update(routine.id, title, instruction, hour, minute, days, reminder)
+                        editing = null
+                    })
+                else Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,
                     modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -59,8 +80,12 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
                         }
                         Text(routine.instruction, style = MaterialTheme.typography.bodySmall, maxLines = 3,
                             overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (routine.enabled) "Próxima: " + RoutineSchedule.whenLabel(now,
+                                RoutineSchedule.next(now, routine.hour, routine.minute, routine.days)) else "Pausada",
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row {
                             TextButton(onClick = { onRunNow(routine) }) { Text("Testar agora") }
+                            TextButton(onClick = { creating = false; editing = routine.id }) { Text("Editar") }
                             Spacer(Modifier.weight(1f))
                             BarIcon(OstieIcons.Delete, "Apagar rotina", { confirmDelete = routine },
                                 tint = MaterialTheme.colorScheme.error)
@@ -73,10 +98,16 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
                 items(store.history) { (title, text, at) ->
                     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text("$title · ${format.format(at)}", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.height(4.dp))
+                        Column(Modifier.padding(start = 14.dp, top = 4.dp, end = 4.dp, bottom = 14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("$title · ${format.format(at)}", style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                BarIcon(OstieIcons.Copy, "Copiar resultado", {
+                                    context.getSystemService(ClipboardManager::class.java)
+                                        .setPrimaryClip(ClipData.newPlainText("OSTIE · $title", text))
+                                    Toast.makeText(context, "Resultado copiado.", Toast.LENGTH_SHORT).show()
+                                })
+                            }
                             Text(text, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -92,15 +123,15 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
 }
 
 @Composable
-private fun RoutineForm(onCancel: () -> Unit,
+private fun RoutineForm(initial: Routine?, onCancel: () -> Unit,
     onSave: (title: String, instruction: String, hour: Int, minute: Int, days: Set<Int>, reminder: Boolean) -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var instruction by remember { mutableStateOf("") }
-    var time by remember { mutableStateOf("08:00") }
-    var days by remember { mutableStateOf(emptySet<Int>()) }
-    var reminder by remember { mutableStateOf(false) }
+    var title by remember { mutableStateOf(initial?.title ?: "") }
+    var instruction by remember { mutableStateOf(initial?.instruction ?: "") }
+    var time by remember { mutableStateOf(initial?.timeLabel ?: "08:00") }
+    var days by remember { mutableStateOf(initial?.days ?: emptySet()) }
+    var reminder by remember { mutableStateOf(initial?.reminder ?: false) }
     val parsed = Regex("^([01]?\\d|2[0-3])[:h]([0-5]\\d)$").find(time.trim())
-    SectionCard("Nova rotina", OstieIcons.Settings) {
+    SectionCard(if (initial == null) "Nova rotina" else "Editar rotina", OstieIcons.Settings) {
         OutlinedTextField(title, { title = it }, label = { Text("Nome") }, singleLine = true,
             modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium)
         OutlinedTextField(instruction, { instruction = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 90.dp),

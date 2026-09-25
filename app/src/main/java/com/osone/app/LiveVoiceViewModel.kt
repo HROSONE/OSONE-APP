@@ -229,7 +229,6 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         if (System.currentTimeMillis() - preferences.getLong("live_models_at", 0L) > 24 * 3600_000L) refreshModels()
         candidateIndex = 0
         reconnectOnce = false
-        memory.refresh() // Relê a pasta: pode ter sido editada fora do app ou restaurada após reinstalação.
         attempts = emptyList()
         screenFramesSent = 0
         screenFramesCaptured = 0
@@ -327,12 +326,16 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
         connected = false
         active = model
         setupLevel = savedLevel(model)
-        searchAvailable = preferences.getBoolean("google_search", true) && setupLevel < 1
+        // Com a API de busca do Google configurada, o Live pesquisa por ela (web_search) em vez da pesquisa embutida.
+        searchAvailable = preferences.getBoolean("google_search", true) && setupLevel < 1 &&
+            !WebSearch.preferApi(getApplication())
         extrasAvailable = setupLevel < 2
         extendedTools = setupLevel < 3
         localToolsAvailable = setupLevel < 4
         reducedMode = LEVEL_NAMES.getOrNull(setupLevel)?.takeIf { setupLevel > 0 }
         heardFromModel = false
+        // Relê a pasta a cada conexão (também ao reconectar): pode ter sido editada fora do app ou restaurada.
+        memory.refresh()
         status = if (reconnectOnce) "Reconectando ${model.label}…" else "Conectando ${model.label}…"
         // Chave no cabeçalho, fora do endereço (que pode aparecer em logs de rede e proxies). Se o serviço
         // recusar o cabeçalho no handshake, volta à chave no endereço até o app reiniciar.
@@ -373,7 +376,7 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                                 val direct = phoneActions.declarations()
                                 for (i in 0 until direct.length()) list.put(direct.get(i))
                             }
-                            // Sem a pesquisa embutida (ex.: cota do Live 3.x), pesquisa pelo modelo de texto.
+                            // Sem a pesquisa embutida (cota do Live 3.x ou API de busca preferida), usa web_search.
                             if (!searchAvailable && preferences.getBoolean("google_search", true)) list.put(WebSearch.declaration())
                             if (knowledge.active && knowledge.sources.isNotEmpty()) list.put(knowledge.toolDeclaration())
                         }))
