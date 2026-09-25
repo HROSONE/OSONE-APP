@@ -4,13 +4,28 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Ideias levantadas e ainda não feitas (da mais valiosa para a menos):
+Plano da sessão de 25/09/2026 (da mais valiosa para a menos), em lotes de um PR cada:
 
-- **Ferramentas no chat com Groq e OpenRouter**: hoje só o Gemini usa as ações do app no chat escrito; os dois aceitam o formato de ferramentas da OpenAI.
-- **Widget na tela inicial**: iniciar o Live ou ver a próxima rotina sem abrir o app.
+**Lote 1 — o OSTIE age com qualquer "cérebro"**
+1. Ações no chat escrito com Groq e OpenRouter: chamadas de ferramenta no formato OpenAI (streaming), laço de até 5 rodadas, conversão do esquema Gemini para JSON Schema e volta sem ferramentas se o modelo recusar.
+2. Rotinas com Groq/OpenRouter também leem agenda e notificações e deixam botões na notificação (hoje só o Gemini usa ferramentas nelas).
+3. Rotina que falha depois de usar uma ferramenta não é repetida (evita anotar duas vezes na memória).
+4. Live relê a memória ao reconectar (pega anotações e organizações feitas no meio da conversa).
+
+**Lote 2 — rotinas mais fáceis e pontuais**
+5. Editar rotina existente (hoje só dá para apagar e criar de novo).
+6. Cada rotina mostra quando roda de novo ("amanhã 08:00").
+7. Aviso com botão para liberar "Alarmes e lembretes" no Android 12+: sem isso a rotina pode atrasar até 10 min.
+8. Botão "Copiar" nos últimos resultados.
+
+**Lote 3 — chat e tela inicial**
+9. Contexto maior no chat: enviar as últimas mensagens por tamanho de texto, não só as 12 últimas.
+10. Widget na tela inicial: iniciar o Live e ver a próxima rotina.
+11. Testes de tela do Live e dos Ajustes (controlar as animações infinitas com `mainClock.autoAdvance = false`).
+
+Ideias maiores para depois:
+
 - **Rotinas por evento**: disparar ao carregar, ao chegar em casa (Wi-Fi) ou ao receber notificação de um app, além do horário.
-- **Memória usada pelo Live em tempo real**: reler a memória ao reconectar a sessão e após uma organização automática.
-- **Testes de tela do Live e dos Ajustes**: exigem controlar as animações infinitas (`mainClock.autoAdvance = false`).
 
 ## Feitos
 
