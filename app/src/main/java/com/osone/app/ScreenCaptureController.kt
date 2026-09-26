@@ -31,6 +31,8 @@ class ScreenCaptureController(
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var lastFrame = 0L
+    private var lastSent = 0L
+    private var lastSignature: IntArray? = null
     private var capturedFrames = 0
     private var captureWidth = 0
     private var captureHeight = 0
@@ -91,6 +93,15 @@ class ScreenCaptureController(
                         padded.copyPixelsFromBuffer(bytes)
                         val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
                         try {
+                            // Tela parada não vira quadro novo: economiza o contexto do Live (só um quadro de tempos em tempos).
+                            val thumb = Bitmap.createScaledBitmap(cropped, FrameChange.SIDE, FrameChange.SIDE, true)
+                            val pixels = IntArray(FrameChange.SIDE * FrameChange.SIDE)
+                            thumb.getPixels(pixels, 0, FrameChange.SIDE, 0, 0, FrameChange.SIDE, FrameChange.SIDE)
+                            if (thumb !== cropped) thumb.recycle()
+                            val signature = FrameChange.signature(pixels)
+                            if (!FrameChange.shouldSend(lastSignature, signature, lastSent, now)) return@setOnImageAvailableListener
+                            lastSignature = signature
+                            lastSent = now
                             val scale = minOf(1.0, 1600.0 / maxOf(image.width, image.height))
                             val frame = if (scale < 1.0) Bitmap.createScaledBitmap(cropped,
                                 maxOf(2, (image.width * scale).toInt()),
