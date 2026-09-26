@@ -14,9 +14,10 @@ setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
 const STRIPE_SECRET_KEY = defineSecret('STRIPE_SECRET_KEY');
 const STRIPE_WEBHOOK_SECRET = defineSecret('STRIPE_WEBHOOK_SECRET');
-const PRICE_PRO_MONTHLY = defineString('OSTIE_PRICE_PRO_MONTHLY');
-const PRICE_PRO_YEARLY = defineString('OSTIE_PRICE_PRO_YEARLY');
-const PRICE_BUSINESS = defineString('OSTIE_PRICE_BUSINESS');
+// Ids de preço da Stripe (públicos, não são segredo): Pro mensal R$ 29,90, Pro anual R$ 239, Empresa R$ 99,90.
+const PRICE_PRO_MONTHLY = defineString('OSTIE_PRICE_PRO_MONTHLY', { default: 'price_1UK3SeQhtJy6DehLDT2CELbu' });
+const PRICE_PRO_YEARLY = defineString('OSTIE_PRICE_PRO_YEARLY', { default: 'price_1UK3RsQhtJy6DehLY3Xq0dz8' });
+const PRICE_BUSINESS = defineString('OSTIE_PRICE_BUSINESS', { default: 'price_1UK3U4QhtJy6DehLGJCH5hM6' });
 
 const prices = () => ({
   proMonthly: PRICE_PRO_MONTHLY.value(),

@@ -31,7 +31,7 @@ firebase functions:secrets:set STRIPE_SECRET_KEY --project ID_DO_PROJETO
 firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project ID_DO_PROJETO
 firebase deploy --only functions:ostie --project ID_DO_PROJETO
 ```
-O deploy pergunta os ids de preço (`OSTIE_PRICE_PRO_MONTHLY`, `OSTIE_PRICE_PRO_YEARLY`, `OSTIE_PRICE_BUSINESS`).
+O deploy pergunta os ids de preço; os do OSTIE já vêm preenchidos (é só apertar Enter).
 O codebase `ostie` é separado: as funções do OSONE não são tocadas. Os segredos são digitados no terminal e ficam no
 Secret Manager do Google; nunca no código nem no chat.
 
