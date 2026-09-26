@@ -65,6 +65,14 @@ object KnowledgeIndex {
         }.filter { it.score > 0 }.sortedByDescending { it.score }.take(limit)
     }
 
+    /** Aviso quando a fonte nova não cabe na base ([max] caracteres no total); null se couber. */
+    fun fullMessage(total: Int, adding: Int, max: Int): String? {
+        if (total + adding <= max) return null
+        val free = (max - total).coerceAtLeast(0)
+        return "A base está cheia: esta fonte tem ${"%,d".format(adding)} caracteres e só cabem mais ${"%,d".format(free)} " +
+            "(limite de ${"%,d".format(max)}). Apague alguma fonte e tente de novo."
+    }
+
     /** Bloco para as instruções do modelo; vazio quando a base está desligada ou sem fontes. */
     fun promptBlock(sources: List<KnowledgeSource>, instructions: String, strict: Boolean): String {
         if (sources.isEmpty() && instructions.isBlank()) return ""

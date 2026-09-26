@@ -37,4 +37,12 @@ class KnowledgeIndexTest {
         assertFalse(large.contains("xxxxxxxx"))
         assertEquals("", KnowledgeIndex.promptBlock(emptyList(), " ", strict = false))
     }
+
+    @Test fun fullBaseRefusesInsteadOfDeleting() {
+        assertEquals(null, KnowledgeIndex.fullMessage(900_000, 100_000, 1_000_000))
+        val message = KnowledgeIndex.fullMessage(950_000, 100_000, 1_000_000)
+        assertTrue(message!!.contains("cheia"))
+        assertTrue(message.contains("Apague alguma fonte"))
+        assertTrue(KnowledgeIndex.fullMessage(1_200_000, 10, 1_000_000)!!.contains("só cabem mais 0"))
+    }
 }

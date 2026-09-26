@@ -4,6 +4,8 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
+Na branch, aguardando a próxima janela pública: base de conhecimento cheia recusa a fonte nova com aviso (antes apagava a mais antiga sem avisar).
+
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).

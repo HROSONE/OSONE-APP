@@ -161,9 +161,14 @@ class KnowledgeBase private constructor(private val context: Context) {
         require(text.length >= 20) { "Não encontrei texto suficiente nessa fonte." }
         require(sources.size < MAX_SOURCES) { "Limite de $MAX_SOURCES fontes; apague alguma antes." }
         val source = KnowledgeSource(UUID.randomUUID().toString().take(8), title.trim().take(80), kind, text.take(MAX_SOURCE), System.currentTimeMillis())
+        // Base cheia: recusa a fonte nova com aviso; nunca apaga uma fonte antiga sozinho.
+        KnowledgeIndex.fullMessage(sources.sumOf { it.text.length }, source.text.length, MAX_TOTAL)?.let { error(it) }
         main.post {
-            val updated = sources + source
-            sources = if (updated.sumOf { it.text.length } > MAX_TOTAL) updated.drop(1) else updated
+            KnowledgeIndex.fullMessage(sources.sumOf { it.text.length }, source.text.length, MAX_TOTAL)?.let {
+                status = "Não consegui adicionar: $it"
+                return@post
+            }
+            sources = sources + source
             save()
             status = "\"${source.title}\" adicionada (${"%,d".format(source.text.length)} caracteres)." +
                 if (text.length > MAX_SOURCE) " O texto foi cortado no limite de ${"%,d".format(MAX_SOURCE)} caracteres." else ""
