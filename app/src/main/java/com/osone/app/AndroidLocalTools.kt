@@ -279,6 +279,30 @@ class AndroidLocalTools(private val context: Context) {
     /** Chame na thread principal; [respond] também é chamado nela. */
     fun executeAsync(name: String, args: JSONObject, respond: (JSONObject) -> Unit) {
         val active = OsoneAccessibilityService.active
+        // Freio: olhar a tela sem parar não faz nada; na quarta olhada seguida, recusa e manda agir.
+        if (name in LookLoop.LOOKS) {
+            when (looks.look()) {
+                LookLoop.Verdict.REFUSE -> {
+                    AgentLog.record("Olhar a tela", "parei de olhar: hora de agir", false)
+                    respond(JSONObject().put("erro", LookLoop.MESSAGE).put("marcas_do_ultimo_print", compactMarks(active)))
+                    return
+                }
+                LookLoop.Verdict.WARN -> {
+                    val original = respond
+                    return executeLook(name, args, active) { answer -> original(answer.put("aviso_importante", LookLoop.MESSAGE)) }
+                }
+                LookLoop.Verdict.OK -> Unit
+            }
+        } else looks.acted()
+        executeLook(name, args, active, respond)
+    }
+
+    /** Números e textos do último print, para o modelo agir sem olhar de novo. */
+    private fun compactMarks(service: OsoneAccessibilityService?): JSONArray = JSONArray().apply {
+        service?.marks?.take(40)?.forEach { put("${it.number}: ${it.label.take(40)}") }
+    }
+
+    private fun executeLook(name: String, args: JSONObject, active: OsoneAccessibilityService?, respond: (JSONObject) -> Unit) {
         if (name in SETTLE) {
             // Age e já devolve a tela nova: uma ida e volta a menos com o modelo (sem acessibilidade, só age).
             val result = execute(name, args)
@@ -404,7 +428,16 @@ class AndroidLocalTools(private val context: Context) {
         val mark = ScreenMarks.find(marks, args.optInt("marca", -1))
             ?: return JSONObject().put("erro", "Marca ${args.optInt("marca", -1)} não existe; as marcas vão de 1 a ${marks.size}. " +
                 "Se a tela mudou, chame look_at_screen de novo.")
-        service.markProblem(mark)?.let { return JSONObject().put("erro", "$it. Chame look_at_screen de novo antes de tocar pelo número.") }
+        service.markProblem(mark)?.let { problem ->
+            // Tela mudou: se a marca tinha texto, toca pelo texto (não obriga a olhar de novo, que prende o agente em laço).
+            val action = normalized(args.optString("acao").ifBlank { "tocar" })
+            if (mark.label.isNotBlank() && (action == "tocar" || action == "segurar")) {
+                val blocked = if (action == "tocar") guard.check(mark.label, confirmed) else null
+                return (blocked?.let { JSONObject().put("erro", it).put("aguardando_confirmacao", true) }
+                    ?: service.interact(mark.label, action)).put("aviso", "$problem; toquei pelo texto \"${mark.label.take(40)}\".")
+            }
+            return JSONObject().put("erro", "$problem. Chame look_at_screen de novo antes de tocar pelo número.")
+        }
         val end = if (args.has("marca_fim")) ScreenMarks.find(marks, args.optInt("marca_fim", -1)) else null
         end?.let { target -> service.markProblem(target)?.let { return JSONObject().put("erro", "$it. Chame look_at_screen de novo.") } }
         val duration = if (args.has("duracao_ms")) args.optInt("duracao_ms") else null
@@ -440,6 +473,7 @@ class AndroidLocalTools(private val context: Context) {
         /** Uma trava para o app inteiro: a confirmação do usuário vale entre chamadas. */
         private val guard = AgentGuard()
         private val editorGuides = EditorGuides.Tracker()
+        private val looks = LookLoop()
         private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen", "run_steps", "inspect_screen")
         /** Ações que mudam a tela e já devolvem a tela nova. */
         private val SETTLE = setOf("interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
