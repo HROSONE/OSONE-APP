@@ -1,48 +1,49 @@
-# Assinatura do OSTIE (Firebase + Stripe)
+# Assinatura do OSTIE (Firebase Blaze + Stripe)
 
 Planos: Grátis, Pro (R$ 29,90/mês ou R$ 239/ano) e Empresa (R$ 99,90/mês por aparelho).
-O app entra com a conta do Firebase do OSONE, o pagamento é pela Stripe (mesma conta do OSONE) e as Cloud Functions em `firebase/ostie-functions` gravam o plano no login (`ostiePlan`).
+O app entra com a conta do Firebase do OSONE (projeto `osone-agi`), o pagamento é pela Stripe (mesma conta do OSONE)
+e as Cloud Functions em `firebase/ostie-functions` (codebase `ostie`, separado do OSONE) gravam o plano no login (`ostiePlan`).
 
-**Os limites dos planos só ligam quando os segredos do Firebase existem no GitHub.** Faça os passos na ordem: servidor e Stripe primeiro, segredos por último.
+**Os limites dos planos só ligam quando os segredos existem no GitHub.** Faça os passos na ordem; segredos por último.
 
-## 1. Stripe (modo de teste primeiro)
-1. Produtos → **OSTIE Pro** com dois preços recorrentes: R$ 29,90 mensal e R$ 239 anual.
-2. Produtos → **OSTIE Empresa**: R$ 99,90 mensal.
-3. Anote os três ids de preço (`price_...`).
-4. Cupom de presente para quem já tinha o OSTIE: Cupons → 100% por 3 meses → crie um código promocional (ex.: `OSTIEPRESENTE`). O checkout aceita códigos.
-5. Portal do cliente: **não mexa** no portal padrão da conta (é o do OSONE). As funções criam sozinhas um portal só do OSTIE (cancelar e trocar cartão, sem trocar de plano).
+## 1. Stripe (feito em 26/09/2026)
+- Produtos OSTIE Pro (mensal `price_1UK3Se…CELbu`, anual `price_1UK3Rs…0dz8`) e OSTIE Empresa (`price_1UK3U4…5hM6`), já no código.
+- Cupom `OSTIEPRESENTE`: 100% por 3 meses, só no OSTIE Pro, primeiro pedido, 22 usos.
+- Portal do cliente: **não mexer** no portal padrão (é o do OSONE). As funções criam um portal só do OSTIE.
 
-## 2. Firebase (projeto do OSONE)
-1. O projeto precisa do plano **Blaze** (Cloud Functions) e do **Firestore** ativo.
-2. Configurações do projeto → Seus apps → **Adicionar app Android** com o pacote `com.osone.app`.
-3. Adicione a **SHA-1 e a SHA-256** da assinatura do OSTIE. Elas aparecem no log da CI da `main`, no passo "Compilar APK com assinatura permanente" (linhas `SHA1:` e `SHA256:`).
-4. Authentication → Método de login: ative **Google** e **E-mail/senha**.
-5. Anote: ID do projeto, **ID do app Android** (`1:...:android:...`), **chave da API da Web** e o **ID do cliente Web** (Authentication → Google → Configuração do SDK da Web).
+## 2. Firebase `osone-agi`
+- Feito: app Android `com.osone.app` (OSTIE) com SHA-1 e SHA-256; login Google e E-mail/senha ativos.
+- **Plano Blaze**: Firebase → ícone de engrenagem → Uso e faturamento → Detalhes e configurações → Modificar plano → Blaze
+  (vincula uma conta de faturamento do Google Cloud com cartão). Na mesma tela, crie um **alerta de orçamento** (ex.: R$ 10).
+  O uso do OSTIE cabe na cota gratuita mensal; o alerta avisa se algo fugir disso.
 
-## 3. Publicar as funções
-1. Na Stripe, Desenvolvedores → Webhooks → Adicionar endpoint (o endereço já é conhecido antes do deploy):
-   `https://us-central1-ID_DO_PROJETO.cloudfunctions.net/ostieStripeWebhook`
-   com os eventos `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated` e
-   `customer.subscription.deleted`. Copie o segredo de assinatura (`whsec_...`).
-2. No computador, com o Firebase CLI logado na conta do OSONE:
+## 3. Webhook da Stripe
+Desenvolvedores → Webhooks → endpoint
+`https://us-central1-osone-agi.cloudfunctions.net/ostieStripeWebhook` com os eventos
+`checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`.
+Guarde o segredo `whsec_...` para o passo 4 (erros de envio antes do deploy são normais).
+
+## 4. Publicar as funções (Google Cloud Shell, no navegador)
+console.cloud.google.com → projeto `osone-agi` → ícone `>_` (Ativar Cloud Shell). Com o repositório público (ou já na `main`):
 ```
-cd firebase/ostie-functions && npm install && cd ..
-firebase functions:secrets:set STRIPE_SECRET_KEY --project ID_DO_PROJETO
-firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project ID_DO_PROJETO
-firebase deploy --only functions:ostie --project ID_DO_PROJETO
+git clone https://github.com/HROSONE/OSONE-APP.git
+cd OSONE-APP/firebase/ostie-functions && npm install && cd ..
+npm install -g firebase-tools
+firebase login --no-localhost
+firebase functions:secrets:set STRIPE_SECRET_KEY --project osone-agi
+firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project osone-agi
+firebase deploy --only functions:ostie --project osone-agi
 ```
-O deploy pergunta os ids de preço; os do OSTIE já vêm preenchidos (é só apertar Enter).
-O codebase `ostie` é separado: as funções do OSONE não são tocadas. Os segredos são digitados no terminal e ficam no
-Secret Manager do Google; nunca no código nem no chat.
+Os segredos (`sk_live_...` e `whsec_...`) são colados só no terminal; ficam no Secret Manager do Google, nunca no código nem no chat.
+O deploy pergunta os ids de preço já preenchidos: aperte Enter. As funções do OSONE não são tocadas.
 
-## 4. Segredos no GitHub (liga os planos)
-Settings → Secrets and variables → Actions → New repository secret:
-- `OSTIE_FIREBASE_PROJECT_ID`
-- `OSTIE_FIREBASE_APP_ID`
-- `OSTIE_FIREBASE_API_KEY`
-- `OSTIE_FIREBASE_WEB_CLIENT_ID`
+## 5. Segredos no GitHub (liga login, assinatura e limites)
+OSONE-APP → Settings → Secrets and variables → Actions → New repository secret:
+- `OSTIE_FIREBASE_PROJECT_ID` = `osone-agi`
+- `OSTIE_FIREBASE_APP_ID` = ID do app Android (`1:997519616556:android:...`)
+- `OSTIE_FIREBASE_API_KEY` = Configurações do projeto → Geral → Chave de API da Web (`AIza...`)
+- `OSTIE_FIREBASE_WEB_CLIENT_ID` = Authentication → Google → Configuração do SDK da Web → ID do cliente da Web
 
-A próxima versão publicada já sai com login, botão Assinar e limites do plano Grátis.
-
-## 5. Conferir
-Com a Stripe em modo de teste: entrar no OSTIE, Ajustes → Seu plano → Assinar Pro, pagar com o cartão de teste `4242 4242 4242 4242`, tocar em "Voltar ao OSTIE" e ver "Plano atual: Pro". Depois troque para as chaves reais da Stripe.
+## 6. Conferir
+Com o próprio cartão e o cupom `OSTIEPRESENTE` (nada é cobrado): Ajustes → Seu plano → entrar → Assinar Pro mensal →
+"Voltar ao OSTIE" → "Plano atual: Pro". Depois cancele em Gerenciar assinatura (volta ao Grátis no fim do período).
