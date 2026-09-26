@@ -111,12 +111,13 @@ class MemoryStore private constructor(private val context: Context) {
     /** Outros arquivos do OSTIE na mesma pasta (ex.: rotinas.json); nulo sem permissão. */
     fun readShared(name: String): String? = if (hasFolderAccess()) read(File(folder, name)) else null
 
-    fun writeShared(name: String, content: String) {
-        if (hasFolderAccess()) try { folder.mkdirs(); File(folder, name).writeText(content) } catch (_: Exception) { }
-    }
+    /** true só se o arquivo foi gravado na pasta do OSTIE. */
+    fun writeShared(name: String, content: String): Boolean =
+        if (hasFolderAccess()) try { folder.mkdirs(); File(folder, name).writeText(content); true } catch (_: Exception) { false }
+        else false
 
-    /** Acrescenta um item datado na seção (criada se não existir). */
-    fun note(section: String, entry: String): JSONObject {
+    /** Acrescenta um item datado na seção (criada se não existir). Memória cheia recusa, em vez de cortar o fim. */
+    @Synchronized fun note(section: String, entry: String): JSONObject {
         val clean = entry.trim().replace("\n", " ").take(400)
         require(clean.length >= 3) { "Anotação vazia." }
         val title = sectionName(section)
@@ -124,21 +125,26 @@ class MemoryStore private constructor(private val context: Context) {
         val sections = parse(text)
         val body = sections[title].orEmpty().trimEnd()
         sections[title] = (if (body.isEmpty()) "" else "$body\n") + "- $clean ($date)"
-        save(render(sections))
+        val updated = render(sections)
+        MemoryEdits.fullMessage(updated.length, LIMIT)?.let { return JSONObject().put("erro", it) }
+        save(updated)
         return result("Anotado em \"$title\".")
     }
 
     /** Reescreve uma seção inteira, para reorganizar, corrigir ou resumir anotações antigas. */
-    fun rewrite(section: String, content: String): JSONObject {
+    @Synchronized fun rewrite(section: String, content: String): JSONObject {
         val title = sectionName(section)
         val sections = parse(text)
         sections[title] = content.trim().take(8_000)
-        save(render(sections))
+        val updated = render(sections)
+        MemoryEdits.fullMessage(updated.length, LIMIT)?.let { return JSONObject().put("erro", it) }
+        backup(text) // a versão anterior fica em memoria-anterior.md
+        save(updated)
         return result("Seção \"$title\" reorganizada.")
     }
 
     /** Troca (ou cria) a única linha da seção que começa com [prefix]; evita anotações duplicadas. */
-    fun rewriteLine(section: String, prefix: String, line: String) {
+    @Synchronized fun rewriteLine(section: String, prefix: String, line: String) {
         val title = sectionName(section)
         val sections = parse(text)
         val lines = sections[title].orEmpty().lines().filterNot { it.removePrefix("- ").startsWith(prefix, true) }
@@ -147,15 +153,22 @@ class MemoryStore private constructor(private val context: Context) {
         save(render(sections))
     }
 
-    /** Apaga linhas que contenham o trecho pedido. */
-    fun forget(fragment: String): JSONObject {
+    /**
+     * Apaga as anotações que contêm o trecho como palavra inteira ("Ana" não apaga "semana").
+     * Mais de [MemoryEdits.MAX_FORGET] pede um trecho mais específico; a versão anterior vai para memoria-anterior.md.
+     */
+    @Synchronized fun forget(fragment: String): JSONObject {
         val needle = fragment.trim()
         require(needle.length >= 3) { "Informe um trecho com pelo menos 3 letras." }
         val lines = text.lines()
-        val kept = lines.filterNot { it.startsWith("- ") && it.contains(needle, true) }
-        if (kept.size == lines.size) return JSONObject().put("resultado", "Nada parecido na memória.")
-        save(kept.joinToString("\n"))
-        return result("${lines.size - kept.size} anotação(ões) apagada(s).")
+        val found = MemoryEdits.forgetMatches(lines, needle)
+        if (found.isEmpty()) return JSONObject().put("resultado", "Nada parecido na memória.")
+        if (found.size > MemoryEdits.MAX_FORGET) return JSONObject()
+            .put("erro", "O trecho aparece em ${found.size} anotações; use um trecho mais específico ou apague uma de cada vez.")
+            .put("anotacoes", org.json.JSONArray(found.take(8).map { lines[it].take(120) }))
+        backup(text)
+        save(lines.filterIndexed { index, _ -> index !in found }.joinToString("\n"))
+        return result("${found.size} anotação(ões) apagada(s). A versão anterior ficou em $BACKUP.")
     }
 
     /** Trecho para as instruções dos modelos; limitado para não pesar a conversa. */

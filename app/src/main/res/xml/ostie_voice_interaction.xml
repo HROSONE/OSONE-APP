@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OSTIE como assistente digital padrão (Configurações > Apps > Apps padrão > Assistente digital). -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.osone.app.OstieVoiceSessionService"
+    android:recognitionService="com.osone.app.OstieRecognitionService"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="false" />

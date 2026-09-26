@@ -360,8 +360,10 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
             backupStatus = withContext(Dispatchers.IO) {
                 try {
                     val routines = RoutineStore.get(getApplication()).routines
-                    memory.writeShared(SettingsBackup.FILE, SettingsBackup.build(settings.all,
+                    val saved = memory.writeShared(SettingsBackup.FILE, SettingsBackup.build(settings.all,
                         org.json.JSONArray(routines.map { it.toJson() }), System.currentTimeMillis()))
+                    if (!saved) return@withContext "Não consegui gravar a cópia em Documentos/OSTIE. Confira a permissão da pasta " +
+                        "(Ajustes > Memória do OSTIE) e o espaço livre."
                     "Cópia salva em Documentos/OSTIE/${SettingsBackup.FILE}: ajustes e ${routines.size} rotina(s). " +
                         "As chaves não entram; a memória e a base de conhecimento já ficam na mesma pasta."
                 } catch (failure: Exception) { "Não consegui salvar a cópia (${failure.javaClass.simpleName})." }
@@ -378,7 +380,9 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     val parsed = SettingsBackup.parse(text)
                     val current = settings.all
                     val editor = settings.edit()
+                    var skipped = 0
                     parsed.settings.forEach { (name, value) ->
+                        if (!SettingsBackup.compatible(value, current[name])) { skipped++; return@forEach }
                         when (value) {
                             is Boolean -> editor.putBoolean(name, value)
                             is String -> editor.putString(name, value)
@@ -395,7 +399,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     val added = withContext(Dispatchers.Main) { RoutineStore.get(getApplication()).merge(routines) }
                     "Ajustes restaurados e $added rotina(s) adicionada(s). Feche e abra o app para aplicar tudo. " +
-                        "As chaves precisam ser coladas de novo."
+                        "As chaves precisam ser coladas de novo." +
+                        if (skipped > 0) " $skipped ajuste(s) de outra versão do app ficaram como estavam." else ""
                 } catch (failure: Exception) { "Não consegui ler a cópia (${failure.message ?: failure.javaClass.simpleName})." }
             }
         }

@@ -27,4 +27,13 @@ class SettingsBackupTest {
         assertEquals(7, SettingsBackup.number(7, null))
         assertTrue(runCatching { SettingsBackup.parse("{\"versao\":9}") }.isFailure)
     }
+
+    @Test fun importKeepsPreferenceTypes() {
+        org.junit.Assert.assertTrue(SettingsBackup.compatible(true, false))
+        org.junit.Assert.assertTrue(SettingsBackup.compatible(3, 7L))
+        org.junit.Assert.assertTrue(SettingsBackup.compatible("x", null))
+        org.junit.Assert.assertFalse(SettingsBackup.compatible("sim", true))
+        org.junit.Assert.assertFalse(SettingsBackup.compatible(1, "texto"))
+        org.junit.Assert.assertFalse(SettingsBackup.compatible(true, 5))
+    }
 }

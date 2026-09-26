@@ -404,6 +404,9 @@ class AndroidLocalTools(private val context: Context) {
         val mark = ScreenMarks.find(marks, args.optInt("marca", -1))
             ?: return JSONObject().put("erro", "Marca ${args.optInt("marca", -1)} não existe; as marcas vão de 1 a ${marks.size}. " +
                 "Se a tela mudou, chame look_at_screen de novo.")
+        service.markProblem(mark)?.let { return JSONObject().put("erro", "$it. Chame look_at_screen de novo antes de tocar pelo número.") }
+        val end = if (args.has("marca_fim")) ScreenMarks.find(marks, args.optInt("marca_fim", -1)) else null
+        end?.let { target -> service.markProblem(target)?.let { return JSONObject().put("erro", "$it. Chame look_at_screen de novo.") } }
         val duration = if (args.has("duracao_ms")) args.optInt("duracao_ms") else null
         return when (normalized(args.optString("acao").ifBlank { "tocar" })) {
             "tocar" -> guard.check(mark.label.ifBlank { service.labelAt(mark.x, mark.y) }, confirmed)
@@ -412,8 +415,7 @@ class AndroidLocalTools(private val context: Context) {
             "segurar" -> service.multiGesture("segurar", mark.x, mark.y, null, null, null, duration)
             "toque_duplo" -> service.multiGesture("toque_duplo", mark.x, mark.y, null, null, null)
             "arrastar" -> {
-                val end = ScreenMarks.find(marks, args.optInt("marca_fim", -1))
-                    ?: return JSONObject().put("erro", "Para arrastar, informe marca_fim com um número válido.")
+                end ?: return JSONObject().put("erro", "Para arrastar, informe marca_fim com um número válido.")
                 service.multiGesture("arrastar", mark.x, mark.y, end.x, end.y, null, duration)
             }
             else -> JSONObject().put("erro", "Ação inválida: use tocar, segurar, toque_duplo ou arrastar.")

@@ -63,4 +63,13 @@ class ScreenMarksTest {
         assertEquals(100L, GesturePlan.build("segurar", 10, 10, null, null, null, w, h, 5).strokes.single().duration)
         assertEquals(2000L, GesturePlan.build("arrastar", 100, 100, 500, 100, null, w, h, 2000).strokes.single().duration)
     }
+
+    @Test fun staleMarksAreRefused() {
+        val mark = ScreenMarks.pick(listOf(ScreenMarks.Box(100, 200, 300, 300, "Pesquisar")), w, h).single()
+        assertNull(ScreenMarks.staleReason(mark, 5_000, true, "Pesquisar"))
+        assertNull(ScreenMarks.staleReason(mark, 5_000, true, "")) // sem texto no ponto (vídeo, jogo): vale
+        assertTrue(ScreenMarks.staleReason(mark, 5_000, true, "Enviar")!!.contains("Enviar"))
+        assertTrue(ScreenMarks.staleReason(mark, 5_000, false, "Pesquisar")!!.contains("Outro app"))
+        assertTrue(ScreenMarks.staleReason(mark, ScreenMarks.MAX_AGE_MS + 1, true, "Pesquisar")!!.contains("2 minutos"))
+    }
 }
