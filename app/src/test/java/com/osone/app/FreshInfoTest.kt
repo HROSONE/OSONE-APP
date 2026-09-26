@@ -42,4 +42,20 @@ class FreshInfoTest {
         assertEquals("pesquisa", FreshInfo.searchQuery("pesquisa", null))
         assertTrue(FreshInfo.searchFailed("pedido", "cota esgotada").contains("cota esgotada"))
     }
+
+    @Test fun queriesUseTodaysYearForCurrentThings() {
+        org.junit.Assert.assertEquals("notícias de hoje sobre futebol 2026", FreshInfo.datedQuery("notícias de hoje sobre futebol 2024", 2026))
+        org.junit.Assert.assertEquals("preço do dólar hoje 2026", FreshInfo.datedQuery("preço do dólar hoje", 2026))
+        // Pergunta histórica fica como veio.
+        org.junit.Assert.assertEquals("final da Copa de 2014", FreshInfo.datedQuery("final da Copa de 2014", 2026))
+        org.junit.Assert.assertEquals("últimas notícias 2025 e 2026", FreshInfo.datedQuery("últimas notícias 2025 e 2026", 2026))
+    }
+
+    @Test fun modelQueryIsCleanedOrFallsBack() {
+        org.junit.Assert.assertEquals("jogo do Flamengo resultado", FreshInfo.cleanModelQuery("\"jogo do Flamengo resultado\"\n", "x"))
+        org.junit.Assert.assertEquals("preço gasolina São Paulo", FreshInfo.cleanModelQuery("Consulta: preço gasolina São Paulo", "x"))
+        org.junit.Assert.assertEquals("reserva", FreshInfo.cleanModelQuery("", "reserva"))
+        org.junit.Assert.assertEquals("reserva", FreshInfo.cleanModelQuery("palavra ".repeat(40), "reserva"))
+        org.junit.Assert.assertTrue(FreshInfo.queryWriter().contains("APENAS"))
+    }
 }

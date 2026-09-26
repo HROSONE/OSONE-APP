@@ -21,7 +21,8 @@ object WebSearch {
     const val CX = "google_search_cx"
     const val PREFER_API = "google_search_api"
     private const val SYSTEM = "Você pesquisa na web para um assistente de voz. Responda em português do Brasil, " +
-        "em no máximo 6 frases objetivas, com números, datas e nomes exatos encontrados. Se não encontrar, diga isso."
+        "em no máximo 6 frases objetivas, com números, datas e nomes exatos encontrados. Diga a data de cada fato; " +
+        "não trate como atual algo de anos anteriores. Se não encontrar, diga isso."
 
     private fun preferences(context: Context) = context.getSharedPreferences("osone_config", 0)
 
@@ -52,13 +53,14 @@ object WebSearch {
             "preços, placares, clima, horários, lançamentos, fatos recentes. Retorna resultados ou um resumo com as fontes.")
         .put("parameters", JSONObject().put("type", "OBJECT")
             .put("properties", JSONObject().put("consulta", JSONObject().put("type", "STRING")
-                .put("description", "O que pesquisar, com contexto (lugar, data, nomes)")))
+                .put("description", "O que pesquisar, com contexto (lugar, nomes). Não escreva o ano, a menos que o usuário peça um ano; o app usa o ano de hoje.")))
             .put("required", JSONArray().put("consulta")))
 
     /** Roda fora da thread principal; [respond] recebe o resultado da ferramenta. */
     fun run(context: Context, args: JSONObject, respond: (JSONObject) -> Unit) {
-        val query = args.optString("consulta").trim().take(500)
-        if (query.isEmpty()) { respond(JSONObject().put("erro", "Informe o que pesquisar.")); return }
+        // Modelos escrevem o ano do treino na consulta: coisa atual é pesquisada com o ano de hoje.
+        val query = FreshInfo.datedQuery(args.optString("consulta").take(500), java.util.Calendar.getInstance().get(java.util.Calendar.YEAR))
+        if (query.isBlank()) { respond(JSONObject().put("erro", "Informe o que pesquisar.")); return }
         synchronized(cache) {
             cache[cacheKey(query)]?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }
         }?.let { respond(JSONObject(it.second.toString())); return }
@@ -87,9 +89,10 @@ object WebSearch {
                     diagnostics.record("Busca Tavily", reason)
                 }
             }
+            result?.put("pesquisado_em", FreshInfo.today())?.put("consulta_usada", query)
             result?.let { found -> synchronized(cache) { cache[cacheKey(query)] = System.currentTimeMillis() to found } }
             respond(result ?: try {
-                JSONObject().put("resultado", gemini(context, query).take(3_000))
+                JSONObject().put("resultado", gemini(context, query).take(3_000)).put("pesquisado_em", FreshInfo.today())
                     .also { found -> synchronized(cache) { cache[cacheKey(query)] = System.currentTimeMillis() to found } }
             } catch (failure: Exception) {
                 val reason = when {
@@ -114,7 +117,7 @@ object WebSearch {
         var lastError: Exception? = null
         for (choice in choices) {
             try {
-                return GeminiClient().streamAnswer(key, choice, listOf(ChatMessage("user", "Pesquise na web: $query")),
+                return GeminiClient().streamAnswer(key, choice, listOf(ChatMessage("user", "Hoje é ${FreshInfo.today()}. Pesquise na web: $query")),
                     ThinkingMode.FAST, null, SYSTEM, 25_000, googleSearch = true) { }
             } catch (failure: GeminiHttpException) {
                 // 400 = modelo sem pesquisa; 404/429/5xx = indisponível ou sem cota: tenta o próximo.

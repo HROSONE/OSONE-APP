@@ -220,6 +220,21 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Consulta de busca escrita pelo modelo a partir das últimas mensagens (rápido, sem ferramentas). */
+    private suspend fun writeSearchQuery(provider: ChatProvider, key: String, model: String, conversation: List<ChatMessage>,
+        fallback: String): String = withContext(Dispatchers.IO) {
+        try {
+            val recent = conversation.takeLast(6).map { ChatMessage(it.role, it.text.take(1_500)) }
+            val written = ChatCompletionClient().streamAnswer(provider, key, model, recent, FreshInfo.queryWriter(), 12_000) { }
+            FreshInfo.cleanModelQuery(written, fallback).also {
+                if (it != fallback) diagnostics.record("Pesquisa", "Consulta escrita pelo modelo: ${it.take(80)}")
+            }
+        } catch (failure: Exception) {
+            diagnostics.record("Pesquisa", "Consulta pela frase do usuário (${failure.javaClass.simpleName}).")
+            fallback
+        }
+    }
+
     /** Decisão do Jev para o chat; null se desligado, sem chave ou sem resposta a tempo (aí valem só as regras). */
     private suspend fun jevChatAnswers(message: String, previous: String?): Map<String, JevApi.Answer>? {
         if (!jevOn) return null
@@ -617,7 +632,8 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
                     var browserSearch = false
                     if (route.search) {
                         // "pesquisa" sozinho pesquisa a pergunta anterior do usuário.
-                        val query = FreshInfo.searchQuery(prompt, previous)
+                        // O próprio modelo escreve a consulta pela conversa; se falhar, vale a frase do usuário.
+                        val query = writeSearchQuery(selectedProvider, key, modelId, snapshot, FreshInfo.searchQuery(prompt, previous))
                         val reason: String? = if (!canSearch) {
                             if (!googleSearch) "a pesquisa está desligada em Ajustes > Pesquisa Google"
                             else "não há chave Gemini nem API de busca do Google salvas em Ajustes"
