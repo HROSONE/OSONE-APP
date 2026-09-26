@@ -27,6 +27,11 @@ class AgentTools(private val context: Context, private val background: Boolean,
     val suggestions = ArrayList<Pair<String, Intent>>()
     /** Imagens criadas nesta resposta (content://…), mostradas no balão do chat. */
     val images = java.util.Collections.synchronizedList(ArrayList<String>())
+    /**
+     * Rotina disparada por notificação: o texto veio de terceiros (SMS, WhatsApp) e pode trazer ordens falsas.
+     * Nesse caso nada é gravado na memória.
+     */
+    @Volatile var untrusted = false
     /** Botão Parar do chat: ações pedidas depois disso são recusadas. */
     @Volatile var halted = false
     /** Quantas ferramentas o modelo já pediu (uma rotina que já agiu não é repetida). */
@@ -36,7 +41,8 @@ class AgentTools(private val context: Context, private val background: Boolean,
     fun declarations(webSearch: Boolean): JSONArray {
         val list = JSONArray()
         val direct = phone.declarations()
-        for (i in 0 until direct.length()) direct.getJSONObject(i).takeIf { !background || it.optString("name") in BACKGROUND }?.let { list.put(it) }
+        for (i in 0 until direct.length()) direct.getJSONObject(i).takeIf { (!background || it.optString("name") in BACKGROUND) &&
+            !(untrusted && it.optString("name") in MEMORY_WRITES) }?.let { list.put(it) }
         val device = local.declarations()
         for (i in 0 until device.length()) device.getJSONObject(i)
             .takeIf { it.optString("name") in (if (background) BACKGROUND_LOCAL else CHAT_LOCAL) }?.let { list.put(it) }
@@ -51,6 +57,7 @@ class AgentTools(private val context: Context, private val background: Boolean,
     /** Bloqueante: chame fora da thread principal. As ações rodam na principal, como no Live. */
     fun run(name: String, args: JSONObject): JSONObject {
         if (halted) return JSONObject().put("erro", "O usuário tocou em Parar; não faça mais nada.")
+        if (untrusted && name in MEMORY_WRITES) return JSONObject().put("erro", "Rotina disparada por notificação não grava na memória.")
         used++
         if (name == WebSearch.NAME) return await(90) { respond -> WebSearch.run(context, args, respond) }
         if (name == KnowledgeBase.TOOL) return knowledge.search(args)
@@ -161,6 +168,7 @@ class AgentTools(private val context: Context, private val background: Boolean,
         /** Funcionam sem tela aberta e sem confirmação. */
         private val BACKGROUND = setOf("read_calendar", "read_notifications", "memory_read", "memory_note", "list_routines")
         private val BACKGROUND_LOCAL = setOf("device_status")
+        private val MEMORY_WRITES = setOf("memory_note", "memory_rewrite", "memory_forget")
         /** Ações de aparelho úteis no chat; controle de tela por acessibilidade fica no Live. */
         private val CHAT_LOCAL = setOf("list_apps", "open_app", "open_app_settings", "open_settings", "set_media_volume",
             "set_brightness", "set_screen_timeout", "set_auto_rotate", "device_status", "copy_text", "open_panel")

@@ -35,6 +35,18 @@ object SettingsBackup {
         } else value.toFloat()
     }
 
+    /**
+     * O valor da cópia pode ir para a preferência sem trocar o tipo dela? Tipo trocado faz o app fechar ao ler
+     * (ex.: texto onde o app espera sim/não). Preferência que ainda não existe aceita qualquer tipo.
+     */
+    fun compatible(value: Any, current: Any?): Boolean = when (current) {
+        null -> value is Boolean || value is String || value is Number
+        is Boolean -> value is Boolean
+        is String -> value is String
+        is Int, is Long, is Float -> value is Number
+        else -> false
+    }
+
     fun parse(text: String): Parsed {
         val json = JSONObject(text)
         require(json.optInt("versao") == 1) { "Arquivo de cópia desconhecido." }

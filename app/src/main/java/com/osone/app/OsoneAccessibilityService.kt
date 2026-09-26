@@ -175,6 +175,12 @@ class OsoneAccessibilityService : AccessibilityService() {
     /** Marcas do último print (look_at_screen), para tap_mark. */
     @Volatile var marks: List<ScreenMarks.Mark> = emptyList()
         private set
+    @Volatile private var marksAt = 0L
+    @Volatile private var marksPackage: String? = null
+
+    /** A marca ainda vale? Motivo quando a tela mudou (aí o modelo precisa olhar de novo). */
+    fun markProblem(mark: ScreenMarks.Mark): String? = ScreenMarks.staleReason(mark, SystemClock.uptimeMillis() - marksAt,
+        rootInActiveWindow?.packageName?.toString() == marksPackage, labelAt(mark.x, mark.y))
     private var lastShotToast = 0L
 
     /** Controles visíveis com o retângulo na tela, para numerar no print. */
@@ -204,7 +210,10 @@ class OsoneAccessibilityService : AccessibilityService() {
         val (width, height) = screenSize()
         val found = ScreenMarks.pick(boxes(), width, height)
         val app = rootInActiveWindow?.packageName?.toString()
-        takeShot(found) { answer -> respond(if (app != null && !answer.has("erro")) answer.put("app", app) else answer) }
+        takeShot(found) { answer ->
+            if (!answer.has("erro")) { marksAt = SystemClock.uptimeMillis(); marksPackage = app }
+            respond(if (app != null && !answer.has("erro")) answer.put("app", app) else answer)
+        }
     }
 
     @RequiresApi(30)

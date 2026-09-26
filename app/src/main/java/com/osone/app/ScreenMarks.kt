@@ -42,6 +42,25 @@ object ScreenMarks {
 
     fun find(marks: List<Mark>, number: Int): Mark? = marks.firstOrNull { it.number == number }
 
+    /** Depois disso o print é velho demais para tocar pelo número. */
+    const val MAX_AGE_MS = 120_000L
+
+    /**
+     * Motivo para não usar a marca (tela mudou), ou null se ainda vale: print velho, outro app na frente, ou o
+     * controle naquele ponto agora tem outro texto. Telas que se mexem (vídeo, jogo) continuam valendo.
+     */
+    fun staleReason(mark: Mark, ageMs: Long, samePackage: Boolean, labelNow: String): String? {
+        fun clean(value: String) = value.lowercase().replace(Regex("\\s+"), " ").trim()
+        val before = clean(mark.label); val now = clean(labelNow)
+        return when {
+            ageMs > MAX_AGE_MS -> "O print tem mais de 2 minutos"
+            !samePackage -> "Outro app está na frente agora"
+            before.isNotEmpty() && now.isNotEmpty() && !before.contains(now) && !now.contains(before) ->
+                "No lugar da marca ${mark.number} agora está \"${labelNow.take(40)}\" (antes: \"${mark.label.take(40)}\")"
+            else -> null
+        }
+    }
+
     /** Espaço entre as linhas da grade, em pixels reais: número redondo, cerca de 8 linhas no lado menor. */
     fun gridStep(width: Int, height: Int): Int {
         val raw = minOf(width, height) / 8.0

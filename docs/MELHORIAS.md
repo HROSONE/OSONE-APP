@@ -4,20 +4,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 26/09/2026 (auditoria de erros e bugs), aguardando o ok:
-
-Lote A — dados e segurança
-1. "Esquecer" na memória apaga demais: o trecho "Ana" apaga também "semana" e "Mariana". Palavra inteira, cópia antes, e com mais de 3 linhas pede para especificar.
-2. Memória cheia (60 mil caracteres) corta o final em silêncio: recusar a anotação e pedir reorganização; cópia antes de reescrever seção.
-3. Anotações ao mesmo tempo (Live, rotina, organizador) podem se perder: gravação em fila única.
-4. Rotina disparada por notificação: texto de terceiros (SMS, WhatsApp) pode dar ordens ao OSTIE. Marcar como dado não confiável e bloquear gravação na memória nessas rotinas.
-
-Lote B — falhas silenciosas
-5. Exportar cópia de segurança diz "salva" mesmo se a gravação falhar.
-6. Importar cópia com valor de tipo diferente pode fazer o app fechar ao abrir: pular esses valores.
-7. tap_mark depois que a tela mudou toca no lugar errado: marca vencida pede novo print.
-
-Na branch, aguardando a próxima janela pública: base de conhecimento cheia recusa a fonte nova com aviso (antes apagava a mais antiga sem avisar).
+Plano de 26/09/2026 (auditoria de erros e bugs): os 7 itens feitos na branch, aguardando a janela pública.
 
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
