@@ -32,6 +32,7 @@ import kotlin.coroutines.resumeWithException
  * compilação ([configured] falso), a conta some da tela e os limites dos planos ficam desligados.
  */
 object OstieAccount {
+    private const val REGION = "us-central1"
     /** Plano vale sem internet por esse tempo depois da última conferência. */
     const val OFFLINE_GRACE_MS = 7L * 24 * 60 * 60 * 1000
 
@@ -42,10 +43,8 @@ object OstieAccount {
         private set
     private var lastRefresh = 0L
 
-    /** Login e assinatura existem nesta versão: Firebase configurado e servidor da assinatura (Vercel) informado. */
     fun configured(): Boolean = BuildConfig.FIREBASE_PROJECT_ID.isNotBlank() &&
-        BuildConfig.FIREBASE_APP_ID.isNotBlank() && BuildConfig.FIREBASE_API_KEY.isNotBlank() &&
-        BuildConfig.OSTIE_API_URL.startsWith("https://")
+        BuildConfig.FIREBASE_APP_ID.isNotBlank() && BuildConfig.FIREBASE_API_KEY.isNotBlank()
 
     private fun auth(context: Context): FirebaseAuth? {
         if (!configured()) return null
@@ -119,23 +118,23 @@ object OstieAccount {
     }
 
     /** Abre o checkout da Stripe: PRO_MENSAL, PRO_ANUAL ou EMPRESA. */
-    suspend fun subscribe(context: Context, option: String) = work(context) { openFrom(context, "checkout", JSONObject().put("plano", option)) }
+    suspend fun subscribe(context: Context, option: String) = work(context) { openFrom(context, "ostieCheckout", JSONObject().put("plano", option)) }
 
     /** Portal da Stripe para trocar cartão, mudar de plano ou cancelar. */
-    suspend fun manage(context: Context) = work(context) { openFrom(context, "portal", JSONObject()) }
+    suspend fun manage(context: Context) = work(context) { openFrom(context, "ostiePortal", JSONObject()) }
 
-    private suspend fun openFrom(context: Context, route: String, body: JSONObject) {
+    private suspend fun openFrom(context: Context, function: String, body: JSONObject) {
         val user = auth(context)?.currentUser ?: error("Entre com a sua conta antes de assinar.")
         val token = user.getIdToken(false).await().token ?: error("Login expirado; entre de novo.")
-        val answer = withContext(Dispatchers.IO) { post(route, token, body) }
+        val answer = withContext(Dispatchers.IO) { post(function, token, body) }
         val url = answer.optString("url")
         require(url.startsWith("https://")) { answer.optString("erro").ifBlank { "O servidor não devolveu o link de pagamento." } }
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         status = "Conclua no navegador; o plano libera sozinho quando voltar ao OSTIE."
     }
 
-    private fun post(route: String, token: String, body: JSONObject): JSONObject {
-        val url = URL(BuildConfig.OSTIE_API_URL.trimEnd('/') + "/api/$route")
+    private fun post(function: String, token: String, body: JSONObject): JSONObject {
+        val url = URL("https://$REGION-${BuildConfig.FIREBASE_PROJECT_ID}.cloudfunctions.net/$function")
         val connection = url.openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = "POST"

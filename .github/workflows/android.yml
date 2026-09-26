@@ -43,7 +43,6 @@ jobs:
           OSTIE_FIREBASE_APP_ID: ${{ secrets.OSTIE_FIREBASE_APP_ID }}
           OSTIE_FIREBASE_API_KEY: ${{ secrets.OSTIE_FIREBASE_API_KEY }}
           OSTIE_FIREBASE_WEB_CLIENT_ID: ${{ secrets.OSTIE_FIREBASE_WEB_CLIENT_ID }}
-          OSTIE_API_URL: ${{ secrets.OSTIE_API_URL }}
         run: gradle :app:assembleDebug --no-daemon
       - name: Compilar APK com assinatura permanente
         if: github.event_name != 'pull_request'
@@ -55,7 +54,6 @@ jobs:
           OSTIE_FIREBASE_APP_ID: ${{ secrets.OSTIE_FIREBASE_APP_ID }}
           OSTIE_FIREBASE_API_KEY: ${{ secrets.OSTIE_FIREBASE_API_KEY }}
           OSTIE_FIREBASE_WEB_CLIENT_ID: ${{ secrets.OSTIE_FIREBASE_WEB_CLIENT_ID }}
-          OSTIE_API_URL: ${{ secrets.OSTIE_API_URL }}
         run: |
           if [ -z "$OSTIE_SIGNING_KEYSTORE_BASE64" ] || [ -z "$OSTIE_SIGNING_PASSWORD" ] || [ -z "$OSTIE_SIGNING_ALIAS" ]; then
             echo 'Assinatura permanente não configurada; consulte docs/ATUALIZACOES.md.'

@@ -23,8 +23,6 @@ android {
         buildConfigField("String", "FIREBASE_APP_ID", env("OSTIE_FIREBASE_APP_ID"))
         buildConfigField("String", "FIREBASE_API_KEY", env("OSTIE_FIREBASE_API_KEY"))
         buildConfigField("String", "FIREBASE_WEB_CLIENT_ID", env("OSTIE_FIREBASE_WEB_CLIENT_ID"))
-        // Servidor da assinatura na Vercel (ex.: https://ostie-api.vercel.app), rotas /api/checkout, /api/portal.
-        buildConfigField("String", "OSTIE_API_URL", env("OSTIE_API_URL"))
     }
     signingConfigs {
         create("stable") {
