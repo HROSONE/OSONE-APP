@@ -4,6 +4,13 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
+Planos do OSTIE (decididos em 26/09/2026):
+- Grátis: conversar (texto e voz), abrir apps, ações diretas; agente na tela com 10 ações por dia; até 2 rotinas.
+- Pro (R$ 29,90/mês ou R$ 239/ano): tudo sem limite, jogos e editores, rotinas por notificação, imagens, "Ei, Ostie", Jev.
+- Empresa (R$ 99,90/mês por aparelho): Pro + base de conhecimento.
+- Lote 1 (na branch): regras (`Plans.kt`), `PlanStore` com limites desligados (`ENFORCED = false`) e seção "Seu plano" em Ajustes.
+- Lote 2 (falta): login Firebase (projeto do OSONE), checkout Stripe (mesma conta, produtos OSTIE Pro/Empresa), Cloud Function com webhook que grava o plano, cupom de presente para quem já tem o OSTIE; então ligar `ENFORCED`.
+
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).

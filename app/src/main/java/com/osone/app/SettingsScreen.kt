@@ -28,6 +28,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
             .padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SectionCard("Seu plano", OstieIcons.Shield, collapsible = true, initiallyOpen = false) { PlanSection() }
             SectionCard("Perfil e aparência", OstieIcons.Settings, collapsible = true, initiallyOpen = false) {
                 val context = LocalContext.current
                 val profile = remember { UserProfile.get(context) }
@@ -366,4 +367,34 @@ private fun AssistantRole() {
             try { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true } catch (_: Exception) { false }
         }
     }) { Text(if (held) "Ver apps padrão" else "Escolher assistente padrão") }
+}
+
+/** Planos do OSTIE: o que cada um libera e o preço. A assinatura (login + Stripe) chega num próximo lote. */
+@Composable
+private fun PlanSection() {
+    val context = LocalContext.current
+    if (PlanStore.ENFORCED) {
+        Text("Plano atual: ${PlanStore.current.label}", style = MaterialTheme.typography.bodyLarge)
+        if (PlanStore.current == Plan.GRATIS) Hint("Ações do agente na tela hoje: ${PlanStore.agentUsedToday(context)} de ${PlanRules.FREE_AGENT_ACTIONS}.")
+    } else Text("Lançamento: todos os recursos liberados por enquanto.", color = OstieColors.Success)
+    PlanCard(Plan.GRATIS, "Conversar por texto e voz, abrir apps, alarmes, lembretes, agenda, pesquisa e memória. " +
+        "Agente na tela com ${PlanRules.FREE_AGENT_ACTIONS} ações por dia e até ${PlanRules.FREE_ROUTINES} rotinas.")
+    PlanCard(Plan.PRO, "Tudo do Grátis, sem limites: agente na tela, jogos e editores de vídeo, rotinas (também por notificação), " +
+        "criar imagens, \"Ei, Ostie\" e Jev.")
+    PlanCard(Plan.EMPRESA, "Tudo do Pro + base de conhecimento para atender clientes com as informações do seu negócio.")
+    Hint("A assinatura chega em breve. Você continua usando as suas próprias chaves de IA.")
+}
+
+@Composable
+private fun PlanCard(plan: Plan, detail: String) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(plan.label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(plan.price, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

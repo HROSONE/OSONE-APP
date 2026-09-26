@@ -159,6 +159,7 @@ class KnowledgeBase private constructor(private val context: Context) {
     private fun add(title: String, kind: String, raw: String) {
         val text = raw.replace("\r\n", "\n").trim()
         require(text.length >= 20) { "Não encontrei texto suficiente nessa fonte." }
+        require(PlanStore.allows(PlanFeature.KNOWLEDGE)) { PlanRules.blocked(PlanFeature.KNOWLEDGE) }
         require(sources.size < MAX_SOURCES) { "Limite de $MAX_SOURCES fontes; apague alguma antes." }
         val source = KnowledgeSource(UUID.randomUUID().toString().take(8), title.trim().take(80), kind, text.take(MAX_SOURCE), System.currentTimeMillis())
         // Base cheia: recusa a fonte nova com aviso; nunca apaga uma fonte antiga sozinho.

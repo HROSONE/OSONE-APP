@@ -207,6 +207,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         installRequested = intent?.getBooleanExtra(UpdateCheckWorker.EXTRA_INSTALL, false) == true
         UpdateCheckWorker.schedule(this, updater.autoUpdate)
         WakeWord.load(this)
+        PlanStore.load(this)
         MemoryOrganizer.schedule(this)
         showWelcome = !preferences.getBoolean("welcome_done", false) && !viewModel.configuredFor(ChatProvider.GEMINI)
         if (!showWelcome && Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {

@@ -167,6 +167,7 @@ class RoutineStore private constructor(private val context: Context) {
         require(title.isNotBlank()) { "Dê um nome à rotina." }
         require(instruction.isNotBlank()) { "Descreva o que a rotina faz." }
         require(routines.size < 30) { "Limite de 30 rotinas." }
+        PlanRules.newRoutine(PlanStore.current, routines.size, onNotification.isNotBlank())?.let { throw IllegalArgumentException(it) }
         val routine = Routine(UUID.randomUUID().toString().take(8), title.trim().take(60), instruction.trim().take(1500),
             hour, minute, days, reminder, onNotification = onNotification.trim().take(120))
         routines = routines + routine

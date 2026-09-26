@@ -107,6 +107,7 @@ class AgentTools(private val context: Context, private val background: Boolean,
     /** Bloqueante (o chat chama fora da thread principal). */
     private fun createImage(description: String): JSONObject {
         if (description.isBlank()) return JSONObject().put("erro", "Descreva a imagem.")
+        if (!PlanStore.allows(PlanFeature.IMAGES)) return JSONObject().put("erro", PlanRules.blocked(PlanFeature.IMAGES))
         val key = SecureKeyStore(context).read() ?: return JSONObject().put("erro", "Criar imagens usa a chave Gemini; salve-a em Ajustes.")
         return try {
             val (encoded, type) = ImageGen.generate(key, description)

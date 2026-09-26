@@ -80,7 +80,8 @@ class AndroidLocalTools(private val context: Context) {
 
     fun execute(name: String, args: JSONObject): JSONObject = try {
         when (name) {
-            EditorGuides.TOOL -> JSONObject().put("guia", EditorGuides.answer(args.optString("app")))
+            EditorGuides.TOOL -> if (!PlanStore.allows(PlanFeature.GAMES_EDITORS)) JSONObject().put("erro", PlanRules.blocked(PlanFeature.GAMES_EDITORS))
+                else JSONObject().put("guia", EditorGuides.answer(args.optString("app")))
             "list_apps" -> {
                 val search = normalized(args.optString("busca"))
                 val all = apps(args.optBoolean("incluir_sistema", false)).filter {
@@ -294,6 +295,11 @@ class AndroidLocalTools(private val context: Context) {
                 LookLoop.Verdict.OK -> Unit
             }
         } else looks.acted()
+        // Planos: gestos e editores são do Pro; no Grátis, o agente na tela tem ações por dia.
+        if (name == "screen_gesture" && !PlanStore.allows(PlanFeature.GAMES_EDITORS)) {
+            respond(JSONObject().put("erro", PlanRules.blocked(PlanFeature.GAMES_EDITORS))); return
+        }
+        if (name in AGENT_ACTIONS) PlanStore.takeAgentAction(context)?.let { respond(JSONObject().put("erro", it)); return }
         executeLook(name, args, active, respond)
     }
 
@@ -474,6 +480,9 @@ class AndroidLocalTools(private val context: Context) {
         private val guard = AgentGuard()
         private val editorGuides = EditorGuides.Tracker()
         private val looks = LookLoop()
+        /** Ações do agente na tela que contam no limite diário do plano Grátis. */
+        private val AGENT_ACTIONS = setOf("interact_ui", "touch_screen", "screen_gesture", "type_text", "scroll_screen",
+            "paste_text", "tap_mark", "run_steps")
         private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen", "run_steps", "inspect_screen")
         /** Ações que mudam a tela e já devolvem a tela nova. */
         private val SETTLE = setOf("interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
