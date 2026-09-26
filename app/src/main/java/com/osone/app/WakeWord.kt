@@ -13,6 +13,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.BatteryManager
@@ -228,14 +229,31 @@ class WakeWordService : Service() {
         var recognizer: org.vosk.Recognizer? = null
         var recorder: AudioRecord? = null
         val buffer = ByteArray(3200) // 100 ms a 16 kHz, 16 bits.
+        val audioManager = getSystemService(AudioManager::class.java)
+        val gate = VoiceGate()
+        var frames = 0
+        var yielding = false
         try {
             recognizer = org.vosk.Recognizer(model, 16000f, WakePhrase.grammar).apply { setWords(true) }
             while (running) {
-                // O Live usa o microfone (ou a bateria está fraca): a escuta solta o dela e espera.
-                if (live.active != null || batteryPaused) {
+                // A cada segundo: ligação ou outro app gravando (áudio, vídeo, câmera)? A escuta sai da frente.
+                if (frames++ % 10 == 0 && live.active == null) {
+                    val mine = recorder?.audioSessionId
+                    val others = try { audioManager.activeRecordingConfigurations.count { it.clientAudioSessionId != mine } }
+                        catch (_: Exception) { 0 }
+                    val now = WakeYield.shouldYield(others, audioManager.mode)
+                    if (now != yielding) {
+                        yielding = now
+                        main.post { WakeWord.status = if (now) "Escuta pausada enquanto outro app usa o microfone." else null }
+                    }
+                }
+                // O Live usa o microfone, outro app grava ou a bateria está fraca: a escuta solta o dela e espera.
+                if (live.active != null || batteryPaused || yielding) {
                     recorder?.let { it.stop(); it.release() }
                     recorder = null
+                    gate.reset()
                     try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
+                    frames = 0
                     continue
                 }
                 if (recorder == null) {
@@ -248,7 +266,10 @@ class WakeWordService : Service() {
                 }
                 val count = recorder.read(buffer, 0, buffer.size)
                 if (count <= 0) { recorder.release(); recorder = null; continue }
-                if (recognizer.acceptWaveForm(buffer, count) && WakePhrase.matches(recognizer.result)) wake()
+                // Em silêncio o reconhecedor descansa; com voz, recebe também os 400 ms anteriores.
+                for (chunk in gate.offer(buffer, count)) {
+                    if (recognizer.acceptWaveForm(chunk, chunk.size) && WakePhrase.matches(recognizer.result)) { wake(); break }
+                }
             }
         } catch (failure: Throwable) {
             if (running) AppDiagnostics.get(this).record("Escuta ativa", "Parou (${failure.javaClass.simpleName}).")

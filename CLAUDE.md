@@ -14,7 +14,8 @@ Converse com o usuário em português do Brasil, em linguagem simples. Para melh
 - Visão de tela: `OsoneAccessibilityService.screenshot` (print com marcas numeradas e grade em pixels reais, `ScreenMarks`; toque pela marca em `tap_mark`), `GesturePlan` (gestos com duração), `ScreenCaptureController` + `FrameChange` (compartilhamento que pula quadros iguais), `EditorGuides` (guias de editores de vídeo para o agente).
 - Memória e rotinas: `MemoryStore` (regras de esquecer e limite em `MemoryEdits`), `MemoryOrganizer`, `Routines` (agenda pura em `RoutineSchedule`), `UserProfile`.
 - Primeiro uso: `WelcomeScreen`. Cópia de segurança: `SettingsBackup` (ajustes e rotinas, sem chaves).
-- Escuta "Ei, Ostie": `WakeWord` (Vosk) e `BatteryPolicy` (pausa com bateria fraca).
+- Escuta "Ei, Ostie": `WakeWord` (Vosk), `BatteryPolicy` (pausa com bateria fraca) e `VoiceGate` (reconhecedor só com voz; `WakeYield` solta o microfone em ligação ou com outro app gravando).
+- Assistente padrão do Android: `OstieAssistant` (VoiceInteractionService abre o Live; `OstieRecognitionService` repassa o ditado ao reconhecedor do aparelho).
 - Tela inicial: `OstieWidget` (Falar e próxima rotina), `OstieTileService`, atalhos em `res/xml/shortcuts.xml`.
 - Atualização: `AppUpdater` (`UpdateFeed`), `UpdateWork`.
 

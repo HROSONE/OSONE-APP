@@ -1,5 +1,7 @@
 package com.osone.app
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -118,7 +120,9 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
                     Hint("Sem \"Mostrar sobre outros apps\", o OSTIE só avisa por notificação quando ouve você; com a permissão, o Live abre direto.")
                     OutlinedButton(onClick = onOverlay) { Text("Permitir abrir sobre outros apps") }
                 }
-                if (WakeWord.on) Hint("Gasta um pouco mais de bateria e o Android mostra o ícone do microfone enquanto escuta. Depois de reiniciar o celular, abra o app uma vez para voltar a escutar.")
+                if (WakeWord.on) Hint("O Android mostra o ícone do microfone enquanto escuta. Em silêncio o reconhecedor descansa, e a escuta pausa sozinha em ligações, quando outro app grava e com bateria fraca. Depois de reiniciar o celular, abra o app uma vez para voltar a escutar.")
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                AssistantRole()
             }
             SectionCard("Atualizações", OstieIcons.ArrowDown, collapsible = true, initiallyOpen = false) {
                 var custom by remember { mutableStateOf(updater.feedUrl.isNotBlank()) }
@@ -340,4 +344,26 @@ private fun OpenRouterModelField(viewModel: OsoneViewModel) {
     Button(onClick = { viewModel.updateOpenRouterModel(draft); draft = viewModel.openRouterModel },
         enabled = draft.isNotBlank() && draft != viewModel.openRouterModel) { Text("Salvar modelo") }
     Hint("openrouter/free escolhe um modelo gratuito disponível. Outros IDs podem ter custo.")
+}
+
+/** Assistente digital padrão: segurar o botão lateral ou deslizar do canto abre o Live, sem microfone ligado. */
+@Composable
+private fun AssistantRole() {
+    val context = LocalContext.current
+    val held = remember {
+        android.os.Build.VERSION.SDK_INT >= 29 && try {
+            context.getSystemService(android.app.role.RoleManager::class.java)?.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT) == true
+        } catch (_: Exception) { false }
+    }
+    Text("Assistente padrão do celular", style = MaterialTheme.typography.bodyLarge)
+    Hint(if (held) "O OSTIE é o assistente padrão: segure o botão lateral (ou o início) ou deslize do canto de baixo para abrir o Live."
+        else "Como o Gemini: escolha o OSTIE em Assistente digital e abra o Live segurando o botão lateral ou deslizando do canto de baixo. " +
+            "Não usa microfone nem bateria parado; dá para usar no lugar do \"Ei, Ostie\".")
+    OutlinedButton(onClick = {
+        val intents = listOf(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS), Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS))
+        intents.firstOrNull { intent ->
+            try { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true } catch (_: Exception) { false }
+        }
+    }) { Text(if (held) "Ver apps padrão" else "Escolher assistente padrão") }
 }

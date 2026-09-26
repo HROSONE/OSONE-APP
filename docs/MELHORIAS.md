@@ -5,6 +5,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 ## Pendentes
 
 Plano de 26/09/2026 (auditoria de erros e bugs): os 7 itens feitos na branch, aguardando a janela pública.
+"Ei, Ostie" como o Gemini (na branch): OSTIE como assistente digital padrão (`OstieAssistant`), escuta que pausa em ligação ou com outro app gravando e porta de voz que poupa bateria (`VoiceGate`).
 
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
