@@ -4,6 +4,8 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
+Na branch, aguardando a janela pública: freio para o agente que só olha a tela (`LookLoop`: avisa na 3ª olhada seguida, recusa da 4ª em diante) e tap_mark que toca pelo texto quando a tela mudou. Caso real: na Play Store ele olhou a tela sem parar em vez de tocar em "Pagamentos e assinaturas".
+
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).
