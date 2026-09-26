@@ -18,8 +18,13 @@ data class GesturePlan(val strokes: List<StrokeSpec>, val hold: Long = 0) {
     companion object {
         val TYPES = listOf("toque_duplo", "segurar", "arrastar", "ampliar", "reduzir")
 
-        /** [amount] = quanto os dedos percorrem na pinça, em % da menor dimensão da tela (10 a 90). */
-        fun build(type: String, x: Int?, y: Int?, endX: Int?, endY: Int?, amount: Int?, width: Int, height: Int): GesturePlan {
+        /**
+         * [amount] = quanto os dedos percorrem na pinça, em % da menor dimensão da tela (10 a 90).
+         * [durationMs] = quanto tempo segurar (jogos: 100 ms a 10 s) ou quanto dura o arraste (arraste lento e preciso
+         * na linha do tempo de editores de vídeo: até 5 s).
+         */
+        fun build(type: String, x: Int?, y: Int?, endX: Int?, endY: Int?, amount: Int?, width: Int, height: Int,
+            durationMs: Int? = null): GesturePlan {
             require(width > 0 && height > 0) { "Tamanho da tela desconhecido." }
             val cx = x ?: (width / 2)
             val cy = y ?: (height / 2)
@@ -27,11 +32,11 @@ data class GesturePlan(val strokes: List<StrokeSpec>, val hold: Long = 0) {
             require(inside(cx, cy)) { "Coordenadas fora da tela (${width}x$height)." }
             return when (type.trim().lowercase()) {
                 "toque_duplo", "duplo" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, 40), StrokeSpec(cx, cy, cx, cy, 110, 40)))
-                "segurar" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, 600)))
+                "segurar" -> GesturePlan(listOf(StrokeSpec(cx, cy, cx, cy, 0, (durationMs ?: 600).coerceIn(100, 10_000).toLong())))
                 "arrastar" -> {
                     require(x != null && y != null && endX != null && endY != null) { "Para arrastar, informe x, y, fim_x e fim_y." }
                     require(inside(endX, endY)) { "Destino fora da tela (${width}x$height)." }
-                    GesturePlan(listOf(StrokeSpec(cx, cy, endX, endY, 0, 450)), hold = 500)
+                    GesturePlan(listOf(StrokeSpec(cx, cy, endX, endY, 0, (durationMs ?: 450).coerceIn(100, 5_000).toLong())), hold = 500)
                 }
                 "ampliar", "reduzir" -> {
                     val side = min(width, height)

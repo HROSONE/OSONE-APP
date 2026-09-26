@@ -36,7 +36,14 @@ class AndroidLocalTools(private val context: Context) {
         put(function("scroll_to_text", "Role a tela até um texto aparecer (listas longas, configurações) e devolva onde ele está.",
             mapOf("texto" to "Texto a procurar", "direcao" to "baixo (padrão), cima, esquerda ou direita"), listOf("texto")))
         put(runStepsDeclaration())
-        put(function("look_at_screen", "Veja a tela atual como imagem (fotos, jogos, apps sem controles acessíveis). A imagem chega a você logo antes da resposta; descreva o que vê.", emptyMap()))
+        put(function("look_at_screen", "Veja a tela atual como imagem (fotos, jogos, editores de vídeo, apps sem controles acessíveis). " +
+            "A imagem chega a você logo antes da resposta, com números amarelos sobre os controles tocáveis (use tap_mark) e uma " +
+            "grade com posições em pixels reais da tela (use direto em x e y).", emptyMap()))
+        put(function("tap_mark", "Aja num controle numerado do último look_at_screen: tocar, segurar, toque_duplo ou arrastar até outra marca. " +
+            "Mais preciso que adivinhar coordenadas.",
+            mapOf("marca" to "Número amarelo do controle", "acao" to "tocar (padrão), segurar, toque_duplo ou arrastar",
+                "marca_fim" to "Para arrastar: número da marca de destino", "duracao_ms" to "Segurar ou arrastar: duração em ms (opcional)",
+                "confirmado_pelo_usuario" to "true só depois que o usuário disse sim a uma ação sensível"), listOf("marca"), true))
         put(function("copy_text", "Copie um texto para a área de transferência do celular.", mapOf("texto" to "Texto a copiar"), listOf("texto")))
         put(function("paste_text", "Cole a área de transferência num campo editável.", mapOf("campo" to "Texto do campo; vazio usa o campo em foco")))
         put(function("type_text", "Escreva em um campo editável visível.", mapOf("campo" to "Texto do campo; vazio usa campo em foco", "texto" to "Conteúdo a escrever"), listOf("texto")))
@@ -46,10 +53,13 @@ class AndroidLocalTools(private val context: Context) {
         put(function("system_navigation", "Volte ou abra início, recentes, notificações ou ajustes rápidos.", mapOf("acao" to "voltar, inicio, recentes, notificacoes ou ajustes_rapidos"), listOf("acao")))
         put(function("screen_gesture", "Gestos na tela: toque_duplo (ex.: ampliar foto), segurar (toque longo num ponto), " +
             "arrastar (segura e move: ícones, itens, controles deslizantes; exige x, y, fim_x e fim_y), ampliar e reduzir " +
-            "(pinça com dois dedos: zoom em fotos, mapas e páginas). Use coordenadas de inspect_screen; sem x e y, usa o centro da tela.",
+            "(pinça com dois dedos: zoom em fotos, mapas, páginas e linha do tempo de editores). Use coordenadas de inspect_screen " +
+            "ou da grade do look_at_screen; sem x e y, usa o centro da tela. Em jogos e editores, duracao_ms controla quanto tempo " +
+            "segurar (100 a 10000) ou a velocidade do arraste (arraste lento = mais preciso).",
             mapOf("tipo" to "toque_duplo, segurar, arrastar, ampliar ou reduzir", "x" to "Posição X (opcional)",
                 "y" to "Posição Y (opcional)", "fim_x" to "X final, para arrastar", "fim_y" to "Y final, para arrastar",
-                "quantidade" to "Pinça: quanto os dedos andam, 10 a 90 (% da tela); padrão 40"), listOf("tipo"), true))
+                "quantidade" to "Pinça: quanto os dedos andam, 10 a 90 (% da tela); padrão 40",
+                "duracao_ms" to "Segurar ou arrastar: duração em ms (opcional)"), listOf("tipo"), true))
         put(function("touch_screen", "Toque rápido em coordenadas da tela, ou deslize rápido (swipe) se informar fim_x e fim_y.", mapOf("x" to "Posição X", "y" to "Posição Y", "fim_x" to "X final opcional", "fim_y" to "Y final opcional",
             "confirmado_pelo_usuario" to "true só depois que o usuário disse sim a uma ação sensível"), listOf("x", "y"), true))
     }
@@ -60,7 +70,8 @@ class AndroidLocalTools(private val context: Context) {
             if (fields.isNotEmpty()) put("parameters", JSONObject().put("type", "OBJECT")
                 .put("properties", JSONObject().apply { fields.forEach { (key, value) ->
                 put(key, JSONObject().put("type", if (key in listOf("incluir_sistema", "ativada", "confirmado_pelo_usuario")) "BOOLEAN"
-                    else if (numbers && key in listOf("x", "y", "fim_x", "fim_y", "percentual", "minutos", "quantidade", "ordem", "segundos")) "INTEGER" else "STRING").put("description", value))
+                    else if (numbers && key in listOf("x", "y", "fim_x", "fim_y", "percentual", "minutos", "quantidade", "ordem", "segundos",
+                        "marca", "marca_fim", "duracao_ms")) "INTEGER" else "STRING").put("description", value))
                 } }).put("required", JSONArray(required)))
         }
 
@@ -214,7 +225,7 @@ class AndroidLocalTools(private val context: Context) {
                     .also { log(name, panel, it) }
             }
             "inspect_screen", "check_ui", "interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
-            "screen_gesture", "paste_text" -> {
+            "screen_gesture", "paste_text", "tap_mark" -> {
                 val service = OsoneAccessibilityService.active
                     ?: return JSONObject().put("erro", "Ative OSTIE em Ajustes > Acessibilidade para controlar outros apps.")
                 val confirmed = args.optBoolean("confirmado_pelo_usuario", false)
@@ -235,8 +246,9 @@ class AndroidLocalTools(private val context: Context) {
                     "screen_gesture" -> {
                         fun number(key: String) = if (args.has(key) && !args.isNull(key)) args.optInt(key, -1) else null
                         service.multiGesture(args.optString("tipo"), number("x"), number("y"), number("fim_x"),
-                            number("fim_y"), number("quantidade"))
+                            number("fim_y"), number("quantidade"), number("duracao_ms"))
                     }
+                    "tap_mark" -> tapMark(service, args, confirmed)
                     else -> {
                         val x = args.optInt("x", -1); val y = args.optInt("y", -1)
                         val swipe = args.has("fim_x") && args.has("fim_y")
@@ -283,6 +295,15 @@ class AndroidLocalTools(private val context: Context) {
             "scroll_to_text" -> service.scrollToText(args.optString("texto"),
                 args.optString("direcao").ifBlank { "baixo" }, done)
             "look_at_screen" -> service.screenshot(done)
+            "inspect_screen" -> {
+                val read = service.inspect()
+                // Jogos, editores e apps sem acessibilidade quase não expõem controles: já manda o print junto.
+                if (read.has("erro") || (read.optJSONArray("controles")?.length() ?: 0) < 3) service.screenshot { shot ->
+                    if (shot.has("erro")) respond(read)
+                    else respond(shot.put("controles_legiveis", read.optJSONArray("controles") ?: JSONArray())
+                        .put("aviso", "Poucos controles legíveis nesta tela; o print foi enviado para você ver."))
+                } else respond(read)
+            }
             else -> respond(JSONObject().put("erro", "Ação local não autorizada neste app."))
         }
     }
@@ -290,13 +311,15 @@ class AndroidLocalTools(private val context: Context) {
     private fun runStepsDeclaration(): JSONObject {
         val step = JSONObject().put("type", "OBJECT").put("properties", JSONObject()
             .put("acao", JSONObject().put("type", "STRING").put("description",
-                "tocar, segurar, digitar, colar, rolar, esperar, voltar, inicio, abrir_app ou tocar_xy"))
+                "tocar, segurar, digitar, colar, rolar, esperar, voltar, inicio, abrir_app, tocar_xy, tocar_marca ou pausa"))
             .put("texto", JSONObject().put("type", "STRING").put("description", "Controle a tocar, texto a digitar ou a esperar"))
             .put("campo", JSONObject().put("type", "STRING").put("description", "Campo para digitar ou colar (vazio = em foco)"))
             .put("nome", JSONObject().put("type", "STRING").put("description", "App, para abrir_app"))
             .put("direcao", JSONObject().put("type", "STRING").put("description", "Para rolar: cima, baixo, esquerda ou direita"))
             .put("ordem", JSONObject().put("type", "INTEGER").put("description", "Qual controle, se houver repetidos"))
             .put("segundos", JSONObject().put("type", "INTEGER").put("description", "Para esperar: tempo máximo"))
+            .put("marca", JSONObject().put("type", "INTEGER").put("description", "Para tocar_marca: número do último look_at_screen"))
+            .put("ms", JSONObject().put("type", "INTEGER").put("description", "Para pausa: milissegundos (30 a 5000), ritmo em jogos"))
             .put("x", JSONObject().put("type", "INTEGER").put("description", "Para tocar_xy"))
             .put("y", JSONObject().put("type", "INTEGER").put("description", "Para tocar_xy"))
             .put("confirmado_pelo_usuario", JSONObject().put("type", "BOOLEAN")
@@ -324,6 +347,12 @@ class AndroidLocalTools(private val context: Context) {
             if (index >= steps.length() || index >= 10) { finish(null); return }
             val step = steps.optJSONObject(index) ?: JSONObject()
             val action = normalized(step.optString("acao"))
+            if (action == "pausa") {
+                // Jogos: ritmo exato entre toques, sem esperar a tela assentar.
+                done.put("pausa")
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ next(index + 1) }, step.optLong("ms", 300L).coerceIn(30L, 5_000L))
+                return
+            }
             if (action == "esperar") {
                 service.waitFor(step.optString("texto"), step.optInt("segundos", 8)) { found ->
                     if (found.optBoolean("encontrado")) { done.put("esperar"); next(index + 1) }
@@ -342,6 +371,8 @@ class AndroidLocalTools(private val context: Context) {
                 "abrir_app" -> "open_app" to JSONObject().put("nome", step.optString("nome").ifBlank { step.optString("texto") })
                 "tocar_xy" -> "touch_screen" to JSONObject().put("x", step.optInt("x", -1)).put("y", step.optInt("y", -1))
                     .put("confirmado_pelo_usuario", step.optBoolean("confirmado_pelo_usuario", false))
+                "tocar_marca" -> "tap_mark" to JSONObject().put("marca", step.optInt("marca", -1))
+                    .put("confirmado_pelo_usuario", step.optBoolean("confirmado_pelo_usuario", false))
                 else -> { finish(JSONObject().put("erro", "Passo ${index + 1}: ação desconhecida \"$action\".")); return }
             }
             val result = execute(call.first, call.second)
@@ -354,8 +385,32 @@ class AndroidLocalTools(private val context: Context) {
         next(0)
     }
 
+    /** Marca do último print → ação no centro dela; tocar passa pela trava de ações sensíveis. */
+    private fun tapMark(service: OsoneAccessibilityService, args: JSONObject, confirmed: Boolean): JSONObject {
+        val marks = service.marks
+        if (marks.isEmpty()) return JSONObject().put("erro", "Não há marcas: chame look_at_screen antes.")
+        val mark = ScreenMarks.find(marks, args.optInt("marca", -1))
+            ?: return JSONObject().put("erro", "Marca ${args.optInt("marca", -1)} não existe; as marcas vão de 1 a ${marks.size}. " +
+                "Se a tela mudou, chame look_at_screen de novo.")
+        val duration = if (args.has("duracao_ms")) args.optInt("duracao_ms") else null
+        return when (normalized(args.optString("acao").ifBlank { "tocar" })) {
+            "tocar" -> guard.check(mark.label.ifBlank { service.labelAt(mark.x, mark.y) }, confirmed)
+                ?.let { JSONObject().put("erro", it).put("aguardando_confirmacao", true) }
+                ?: service.gesture(mark.x, mark.y, null, null)
+            "segurar" -> service.multiGesture("segurar", mark.x, mark.y, null, null, null, duration)
+            "toque_duplo" -> service.multiGesture("toque_duplo", mark.x, mark.y, null, null, null)
+            "arrastar" -> {
+                val end = ScreenMarks.find(marks, args.optInt("marca_fim", -1))
+                    ?: return JSONObject().put("erro", "Para arrastar, informe marca_fim com um número válido.")
+                service.multiGesture("arrastar", mark.x, mark.y, end.x, end.y, null, duration)
+            }
+            else -> JSONObject().put("erro", "Ação inválida: use tocar, segurar, toque_duplo ou arrastar.")
+        }.put("marca", JSONObject().put("n", mark.number).put("texto", mark.label))
+    }
+
     private fun describe(name: String, args: JSONObject): String = when {
         args.has("texto") -> "\"${args.optString("texto").take(40)}\""
+        args.has("marca") -> "marca ${args.optInt("marca")}"
         args.has("x") -> "(${args.optInt("x")}, ${args.optInt("y")})" +
             (if (args.has("fim_x")) " → (${args.optInt("fim_x")}, ${args.optInt("fim_y")})" else "")
         args.has("direcao") -> args.optString("direcao")
@@ -370,14 +425,15 @@ class AndroidLocalTools(private val context: Context) {
     companion object {
         /** Uma trava para o app inteiro: a confirmação do usuário vale entre chamadas. */
         private val guard = AgentGuard()
-        private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen", "run_steps")
+        private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen", "run_steps", "inspect_screen")
         /** Ações que mudam a tela e já devolvem a tela nova. */
         private val SETTLE = setOf("interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
-            "screen_gesture", "paste_text", "open_app")
+            "screen_gesture", "paste_text", "open_app", "tap_mark")
         private val LABELS = mapOf("interact_ui" to "Tocar", "type_text" to "Digitar", "scroll_screen" to "Rolar",
             "system_navigation" to "Navegar", "touch_screen" to "Toque na tela", "screen_gesture" to "Gesto",
             "paste_text" to "Colar", "copy_text" to "Copiar", "open_panel" to "Painel", "wait_for_ui" to "Esperar",
-            "scroll_to_text" to "Rolar até achar", "look_at_screen" to "Olhar a tela", "run_steps" to "Sequência")
+            "scroll_to_text" to "Rolar até achar", "look_at_screen" to "Olhar a tela", "run_steps" to "Sequência",
+            "tap_mark" to "Tocar na marca")
     }
 
     private fun normalized(value: String): String = Normalizer.normalize(value.lowercase(java.util.Locale.ROOT), Normalizer.Form.NFD)

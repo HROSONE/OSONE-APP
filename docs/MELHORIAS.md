@@ -4,20 +4,10 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 26/09/2026 (visão de tela), aguardando o ok:
-
-Lote A — o agente enxerga e toca certo
-1. Print com marcas numeradas: look_at_screen desenha números sobre os controles; o modelo toca "no 7" em vez de adivinhar coordenadas.
-2. Toque certo a partir do print: o print vai reduzido (1024 px) e o toque usa pixels reais; converter a escala sozinho.
-3. Apps sem controles acessíveis (jogos, Flutter, páginas): inspect_screen vazio cai no print automaticamente.
-
-Lote B — ver a tela fora do Live
-4. "O que tem na minha tela?" no chat escrito (Gemini vê a imagem; Groq/OpenRouter pedem a descrição ao Gemini).
-5. Botão "Explicar a tela" (bloco rápido e atalho do ícone): tira o print e abre o chat com a imagem anexada.
-
-Lote C — compartilhar a tela mais leve e transparente
-6. Compartilhamento de tela só envia quadro quando a tela muda: sessão do Live dura mais e o áudio fica leve.
-7. Aviso rápido "OSTIE olhou a tela" sempre que um print é tirado.
+Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7 (versão em "Feitos"). O usuário tirou o 4 e o 5.
+Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
+- Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).
+- Receitas por editor (CapCut, VN, KineMaster): onde ficam corte, texto, transição e exportar.
 
 Conferir o Jev (0.15.101) com a chave real: o formato da API foi montado a partir de exemplos de terceiros.
 

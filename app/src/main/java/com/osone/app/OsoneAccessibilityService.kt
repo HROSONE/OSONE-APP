@@ -3,6 +3,9 @@ package com.osone.app
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
@@ -12,6 +15,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Display
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -61,9 +65,9 @@ class OsoneAccessibilityService : AccessibilityService() {
                     if (node.isSelected) put("selecionado", true)
                 })
         }
-        val metrics = resources.displayMetrics
+        val (width, height) = screenSize()
         return JSONObject().put("app", root.packageName?.toString() ?: "desconhecido")
-            .put("tela", JSONArray().put(metrics.widthPixels).put(metrics.heightPixels))
+            .put("tela", JSONArray().put(width).put(height))
             .put("controles", nodes).put("limite", nodes.length() == limit)
             .put("atualizado_ha_ms", if (lastWindowUpdate > 0) SystemClock.uptimeMillis() - lastWindowUpdate else -1)
     }
@@ -168,30 +172,80 @@ class OsoneAccessibilityService : AccessibilityService() {
         step()
     }
 
-    /** Print da tela (Android 11+), em JPEG base64 de até 1024 px, para o Live ver o que está aberto. */
+    /** Marcas do último print (look_at_screen), para tap_mark. */
+    @Volatile var marks: List<ScreenMarks.Mark> = emptyList()
+        private set
+    private var lastShotToast = 0L
+
+    /** Controles visíveis com o retângulo na tela, para numerar no print. */
+    private fun boxes(): List<ScreenMarks.Box> {
+        val root = rootInActiveWindow ?: return emptyList()
+        val list = ArrayList<ScreenMarks.Box>()
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty() && list.size < 400) {
+            val node = queue.removeFirst()
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+            if (!node.isVisibleToUser) continue
+            val bounds = Rect().also(node::getBoundsInScreen)
+            val label = if (node.isPassword) "[campo protegido]" else
+                (node.text?.toString() ?: node.contentDescription?.toString() ?: "")
+            list += ScreenMarks.Box(bounds.left, bounds.top, bounds.right, bounds.bottom, label, node.isClickable, node.isEditable)
+        }
+        return list
+    }
+
+    /**
+     * Print da tela (Android 11+), em JPEG base64 de até 1024 px, com grade em pixels reais e números sobre os
+     * controles tocáveis: o modelo toca pelo número (tap_mark) ou lê a posição na grade (jogos, editores de vídeo).
+     */
     fun screenshot(respond: (JSONObject) -> Unit) {
         if (Build.VERSION.SDK_INT < 30) { respond(error("Olhar a tela exige Android 11 ou mais novo; peça para compartilhar a tela no Live.")); return }
-        takeShot(respond)
+        val (width, height) = screenSize()
+        val found = ScreenMarks.pick(boxes(), width, height)
+        takeShot(found, respond)
     }
 
     @RequiresApi(30)
-    private fun takeShot(respond: (JSONObject) -> Unit) {
+    private fun takeShot(found: List<ScreenMarks.Mark>, respond: (JSONObject) -> Unit) {
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
             override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
                 Thread({
                     val answer = try {
                         val hardware = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                             ?: throw IllegalStateException("imagem vazia")
-                        val bitmap = hardware.copy(Bitmap.Config.ARGB_8888, false)
+                        val bitmap = hardware.copy(Bitmap.Config.ARGB_8888, true)
                         hardware.recycle(); result.hardwareBuffer.close()
                         val scale = minOf(1f, 1024f / maxOf(bitmap.width, bitmap.height))
                         val small = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(),
                             (bitmap.height * scale).toInt(), true) else bitmap
+                        // Grade e marcas em pixels reais da tela (os mesmos dos toques), desenhadas no print reduzido.
+                        val realW = bitmap.width; val realH = bitmap.height
+                        val step = ScreenMarks.gridStep(realW, realH)
+                        annotate(small, found, realW, realH, small.width.toFloat() / realW, step)
+                        if (small !== bitmap) bitmap.recycle()
                         val bytes = java.io.ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 70, it) }.toByteArray()
                         JSONObject().put("_imagem", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                            .put("tamanho", JSONArray().put(small.width).put(small.height))
+                            .put("tela", JSONArray().put(realW).put(realH)).put("grade_px", step)
+                            .put("marcas", JSONArray().apply { found.forEach { mark ->
+                                put(JSONObject().put("n", mark.number).put("texto", mark.label).put("centro", JSONArray().put(mark.x).put(mark.y)))
+                            } })
+                            .put("como_usar", "Números amarelos = controles: toque com tap_mark. Os números da grade são pixels reais da " +
+                                "tela: use-os direto em x e y (touch_screen, screen_gesture) onde não houver marca.")
                     } catch (failure: Exception) { error("Não consegui ler a imagem da tela (${failure.javaClass.simpleName}).") }
-                    main.post { respond(answer) }
+                    main.post {
+                        if (!answer.has("erro")) {
+                            marks = found
+                            // Transparência: o usuário sabe quando o OSTIE olhou a tela (sem repetir em jogos).
+                            val now = SystemClock.uptimeMillis()
+                            if (now - lastShotToast > 10_000) {
+                                lastShotToast = now
+                                try { Toast.makeText(this@OsoneAccessibilityService, "OSTIE olhou a tela", Toast.LENGTH_SHORT).show() }
+                                catch (_: Exception) { }
+                            }
+                        }
+                        respond(answer)
+                    }
                 }, "ostie-screenshot").start()
             }
 
@@ -205,6 +259,35 @@ class OsoneAccessibilityService : AccessibilityService() {
                 }))
             }
         })
+    }
+
+    /** Grade discreta com rótulos em pixels reais nas bordas e números amarelos sobre os controles. */
+    private fun annotate(image: Bitmap, found: List<ScreenMarks.Mark>, width: Int, height: Int, scale: Float, step: Int) {
+        val canvas = Canvas(image)
+        val line = Paint().apply { color = Color.argb(70, 0, 200, 255); strokeWidth = 1f }
+        val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 0, 200, 255); textSize = 13f }
+        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(160, 0, 0, 0); textSize = 13f; strokeWidth = 3f; style = Paint.Style.STROKE }
+        ScreenMarks.gridLines(width, step).forEach { value ->
+            val x = ScreenMarks.toImage(value, scale).toFloat()
+            canvas.drawLine(x, 0f, x, image.height.toFloat(), line)
+            canvas.drawText("$value", x + 2, 14f, shadow); canvas.drawText("$value", x + 2, 14f, label)
+        }
+        ScreenMarks.gridLines(height, step).forEach { value ->
+            val y = ScreenMarks.toImage(value, scale).toFloat()
+            canvas.drawLine(0f, y, image.width.toFloat(), y, line)
+            canvas.drawText("$value", 2f, y - 2, shadow); canvas.drawText("$value", 2f, y - 2, label)
+        }
+        val box = Paint().apply { color = Color.argb(200, 255, 214, 0); style = Paint.Style.STROKE; strokeWidth = 2f }
+        val tag = Paint().apply { color = Color.argb(230, 255, 214, 0) }
+        val number = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 15f; isFakeBoldText = true }
+        found.forEach { mark ->
+            val left = mark.box.left * scale; val top = mark.box.top * scale
+            canvas.drawRect(left, top, mark.box.right * scale, mark.box.bottom * scale, box)
+            val text = "${mark.number}"
+            val w = number.measureText(text) + 6
+            canvas.drawRect(left, top, left + w, top + 18, tag)
+            canvas.drawText(text, left + 3, top + 14, number)
+        }
     }
 
     /** Cola a área de transferência num campo (pelo texto do campo ou o campo em foco). */
@@ -269,9 +352,18 @@ class OsoneAccessibilityService : AccessibilityService() {
         return JSONObject().put("aceito_pelo_android", performGlobalAction(global))
     }
 
-    fun gesture(x: Int, y: Int, endX: Int?, endY: Int?): JSONObject {
+    /** Tamanho real da tela (com as barras do sistema): o mesmo dos toques, do print e da grade. */
+    private fun screenSize(): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= 30) try {
+            val bounds = getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
+            if (bounds.width() > 2 && bounds.height() > 2) return bounds.width() to bounds.height()
+        } catch (_: Exception) { }
         val metrics = resources.displayMetrics
-        val width = metrics.widthPixels; val height = metrics.heightPixels
+        return metrics.widthPixels to metrics.heightPixels
+    }
+
+    fun gesture(x: Int, y: Int, endX: Int?, endY: Int?): JSONObject {
+        val (width, height) = screenSize()
         if (listOfNotNull(x, y, endX, endY).any { it < 0 } || x >= width || y >= height ||
             (endX != null && endX >= width) || (endY != null && endY >= height))
             return error("Coordenadas fora da tela (${width}x$height).")
@@ -285,10 +377,10 @@ class OsoneAccessibilityService : AccessibilityService() {
     }
 
     /** Gestos com vários dedos ou tempos: toque duplo, segurar, arrastar segurando, pinça (ampliar/reduzir). */
-    fun multiGesture(type: String, x: Int?, y: Int?, endX: Int?, endY: Int?, amount: Int?): JSONObject {
-        val metrics = resources.displayMetrics
+    fun multiGesture(type: String, x: Int?, y: Int?, endX: Int?, endY: Int?, amount: Int?, durationMs: Int? = null): JSONObject {
+        val (width, height) = screenSize()
         val plan = try {
-            GesturePlan.build(type, x, y, endX, endY, amount, metrics.widthPixels, metrics.heightPixels)
+            GesturePlan.build(type, x, y, endX, endY, amount, width, height, durationMs)
         } catch (invalid: IllegalArgumentException) { return error(invalid.message ?: "Gesto inválido.") }
         // A tela só "assenta" depois que o gesto inteiro terminou.
         lastAction = SystemClock.uptimeMillis() + plan.hold + plan.strokes.maxOf { it.start + it.duration }
