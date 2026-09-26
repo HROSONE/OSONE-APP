@@ -4,10 +4,9 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7 (versão em "Feitos"). O usuário tirou o 4 e o 5.
+Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`); na branch, aguardando a janela pública. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).
-- Receitas por editor (CapCut, VN, KineMaster): onde ficam corte, texto, transição e exportar.
 
 Conferir o Jev (0.15.101) com a chave real: o formato da API foi montado a partir de exemplos de terceiros.
 

@@ -39,6 +39,9 @@ class AndroidLocalTools(private val context: Context) {
         put(function("look_at_screen", "Veja a tela atual como imagem (fotos, jogos, editores de vídeo, apps sem controles acessíveis). " +
             "A imagem chega a você logo antes da resposta, com números amarelos sobre os controles tocáveis (use tap_mark) e uma " +
             "grade com posições em pixels reais da tela (use direto em x e y).", emptyMap()))
+        put(function(EditorGuides.TOOL, "Guia de um editor de vídeo (CapCut, VN, InShot, KineMaster, PowerDirector, Filmora, " +
+            "LumaFusion, Premiere): onde ficam importar, dividir, texto, transição, música e exportar. Chame antes de editar num app " +
+            "que você ainda não conhece.", mapOf("app" to "Nome do editor"), listOf("app")))
         put(function("tap_mark", "Aja num controle numerado do último look_at_screen: tocar, segurar, toque_duplo ou arrastar até outra marca. " +
             "Mais preciso que adivinhar coordenadas.",
             mapOf("marca" to "Número amarelo do controle", "acao" to "tocar (padrão), segurar, toque_duplo ou arrastar",
@@ -77,6 +80,7 @@ class AndroidLocalTools(private val context: Context) {
 
     fun execute(name: String, args: JSONObject): JSONObject = try {
         when (name) {
+            EditorGuides.TOOL -> JSONObject().put("guia", EditorGuides.answer(args.optString("app")))
             "list_apps" -> {
                 val search = normalized(args.optString("busca"))
                 val all = apps(args.optBoolean("incluir_sistema", false)).filter {
@@ -279,7 +283,7 @@ class AndroidLocalTools(private val context: Context) {
             // Age e já devolve a tela nova: uma ida e volta a menos com o modelo (sem acessibilidade, só age).
             val result = execute(name, args)
             if (result.has("erro") || active == null) respond(result)
-            else if (name == "open_app") active.settle(2500, minMs = 800) { screen -> respond(result.put("tela_depois", screen)) }
+            else if (name == "open_app") active.settle(2500, minMs = 800) { screen -> respond(withGuide(result.put("tela_depois", screen))) }
             else active.settle(1500) { screen -> respond(result.put("tela_depois", screen)) }
             return
         }
@@ -287,7 +291,7 @@ class AndroidLocalTools(private val context: Context) {
             ?: return respond(JSONObject().put("erro", "Ative OSTIE em Ajustes > Acessibilidade para controlar outros apps."))
         val done: (JSONObject) -> Unit = { answer ->
             log(name, if (name == "look_at_screen") "print da tela" else describe(name, args), answer)
-            respond(answer)
+            respond(withGuide(answer))
         }
         when (name) {
             "run_steps" -> runSteps(service, args.optJSONArray("passos") ?: JSONArray(), done)
@@ -299,10 +303,10 @@ class AndroidLocalTools(private val context: Context) {
                 val read = service.inspect()
                 // Jogos, editores e apps sem acessibilidade quase não expõem controles: já manda o print junto.
                 if (read.has("erro") || (read.optJSONArray("controles")?.length() ?: 0) < 3) service.screenshot { shot ->
-                    if (shot.has("erro")) respond(read)
-                    else respond(shot.put("controles_legiveis", read.optJSONArray("controles") ?: JSONArray())
-                        .put("aviso", "Poucos controles legíveis nesta tela; o print foi enviado para você ver."))
-                } else respond(read)
+                    if (shot.has("erro")) respond(withGuide(read))
+                    else respond(withGuide(shot.put("controles_legiveis", read.optJSONArray("controles") ?: JSONArray())
+                        .put("aviso", "Poucos controles legíveis nesta tela; o print foi enviado para você ver.")))
+                } else respond(withGuide(read))
             }
             else -> respond(JSONObject().put("erro", "Ação local não autorizada neste app."))
         }
@@ -385,6 +389,14 @@ class AndroidLocalTools(private val context: Context) {
         next(0)
     }
 
+    /** Editor de vídeo aberto: o guia dele vai junto da leitura da tela (uma vez a cada 15 min por app). */
+    private fun withGuide(answer: JSONObject): JSONObject {
+        if (answer.has("erro")) return answer
+        val app = answer.optString("app").ifBlank { answer.optJSONObject("tela_depois")?.optString("app").orEmpty() }
+        editorGuides.guideFor(app)?.let { answer.put("guia_do_editor", it) }
+        return answer
+    }
+
     /** Marca do último print → ação no centro dela; tocar passa pela trava de ações sensíveis. */
     private fun tapMark(service: OsoneAccessibilityService, args: JSONObject, confirmed: Boolean): JSONObject {
         val marks = service.marks
@@ -425,6 +437,7 @@ class AndroidLocalTools(private val context: Context) {
     companion object {
         /** Uma trava para o app inteiro: a confirmação do usuário vale entre chamadas. */
         private val guard = AgentGuard()
+        private val editorGuides = EditorGuides.Tracker()
         private val ASYNC = setOf("wait_for_ui", "scroll_to_text", "look_at_screen", "run_steps", "inspect_screen")
         /** Ações que mudam a tela e já devolvem a tela nova. */
         private val SETTLE = setOf("interact_ui", "type_text", "scroll_screen", "system_navigation", "touch_screen",
@@ -433,7 +446,7 @@ class AndroidLocalTools(private val context: Context) {
             "system_navigation" to "Navegar", "touch_screen" to "Toque na tela", "screen_gesture" to "Gesto",
             "paste_text" to "Colar", "copy_text" to "Copiar", "open_panel" to "Painel", "wait_for_ui" to "Esperar",
             "scroll_to_text" to "Rolar até achar", "look_at_screen" to "Olhar a tela", "run_steps" to "Sequência",
-            "tap_mark" to "Tocar na marca")
+            "tap_mark" to "Tocar na marca", EditorGuides.TOOL to "Guia do editor")
     }
 
     private fun normalized(value: String): String = Normalizer.normalize(value.lowercase(java.util.Locale.ROOT), Normalizer.Form.NFD)

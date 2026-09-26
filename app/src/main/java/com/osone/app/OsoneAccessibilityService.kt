@@ -203,7 +203,8 @@ class OsoneAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < 30) { respond(error("Olhar a tela exige Android 11 ou mais novo; peça para compartilhar a tela no Live.")); return }
         val (width, height) = screenSize()
         val found = ScreenMarks.pick(boxes(), width, height)
-        takeShot(found, respond)
+        val app = rootInActiveWindow?.packageName?.toString()
+        takeShot(found) { answer -> respond(if (app != null && !answer.has("erro")) answer.put("app", app) else answer) }
     }
 
     @RequiresApi(30)
