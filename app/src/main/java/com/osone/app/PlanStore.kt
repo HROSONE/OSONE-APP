@@ -9,12 +9,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Plano deste aparelho e o contador diário do agente. Enquanto a assinatura (login + Stripe) não está no ar,
- * [ENFORCED] fica desligado e todos usam tudo, como antes: ninguém que ganhou o OSTIE perde recurso.
+ * Plano deste aparelho e o contador diário do agente. Os limites só valem quando a versão foi compilada com
+ * a conta OSTIE (Firebase) configurada: sem ela não há como assinar, então ninguém perde recurso.
  */
 object PlanStore {
-    /** Liga os limites quando a assinatura estiver funcionando. */
-    const val ENFORCED = false
+    /** Limites ligados: a conta e a assinatura existem nesta versão. */
+    val ENFORCED: Boolean get() = OstieAccount.configured()
     private const val PREFS = "osone_plan"
     private val day = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
@@ -22,12 +22,27 @@ object PlanStore {
     var subscribed by mutableStateOf(Plan.GRATIS)
         private set
 
+    private var checkedAt = 0L
+
     fun load(context: Context) {
-        subscribed = Plan.fromId(context.getSharedPreferences(PREFS, 0).getString("plan", null))
+        val prefs = context.getSharedPreferences(PREFS, 0)
+        subscribed = Plan.fromId(prefs.getString("plan", null))
+        checkedAt = prefs.getLong("checked_at", 0L)
     }
 
-    /** Plano que vale agora: sem os limites ligados, tudo liberado. */
-    val current: Plan get() = if (ENFORCED) subscribed else Plan.EMPRESA
+    /** Plano conferido no servidor (login); vale sem internet por [OstieAccount.OFFLINE_GRACE_MS]. */
+    fun saveSubscribed(context: Context, plan: Plan) {
+        subscribed = plan
+        checkedAt = System.currentTimeMillis()
+        context.getSharedPreferences(PREFS, 0).edit().putString("plan", plan.name).putLong("checked_at", checkedAt).apply()
+    }
+
+    /** Plano que vale agora: sem os limites ligados, tudo liberado; plano pago sem conferir há dias volta ao Grátis. */
+    val current: Plan get() = when {
+        !ENFORCED -> Plan.EMPRESA
+        System.currentTimeMillis() - checkedAt > OstieAccount.OFFLINE_GRACE_MS -> Plan.GRATIS
+        else -> subscribed
+    }
 
     fun allows(feature: PlanFeature) = PlanRules.allows(current, feature)
 

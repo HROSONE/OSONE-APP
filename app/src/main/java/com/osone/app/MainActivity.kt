@@ -159,6 +159,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     /** Atalhos, bloco dos Ajustes rápidos, assistente e "Compartilhar com OSTIE". */
     private fun handleIntent(intent: Intent?) {
+        // ostie://assinatura: a página de volta do pagamento abre o app em Ajustes > Seu plano.
+        if (intent?.data?.scheme == "ostie") {
+            showLive = false; showWriting = false; showRoutines = false; showSettings = true
+            lifecycleScope.launch { OstieAccount.refreshPlan(this@MainActivity, force = true) }
+            return
+        }
         when (intent?.action) {
             ACTION_LIVE, Intent.ACTION_ASSIST -> { showWriting = false; requestLive() }
             ACTION_WRITING -> { showLive = false; showRoutines = false; showWriting = true }
@@ -208,6 +214,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         UpdateCheckWorker.schedule(this, updater.autoUpdate)
         WakeWord.load(this)
         PlanStore.load(this)
+        OstieAccount.load(this)
         MemoryOrganizer.schedule(this)
         showWelcome = !preferences.getBoolean("welcome_done", false) && !viewModel.configuredFor(ChatProvider.GEMINI)
         if (!showWelcome && Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("asked_notifications", false)) {
@@ -386,6 +393,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
+        // Volta do checkout da Stripe (ou do dia a dia): confere o plano no login, no máximo uma vez por minuto.
+        lifecycleScope.launch { OstieAccount.refreshPlan(this@MainActivity) }
         bubblePermission = Settings.canDrawOverlays(this)
         accessibilityEnabled = OsoneAccessibilityService.active != null
         notificationsAccess = OstieNotificationListener.enabled(this)

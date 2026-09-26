@@ -1,0 +1,10 @@
+{
+  "functions": [
+    {
+      "source": "ostie-functions",
+      "codebase": "ostie",
+      "runtime": "nodejs20",
+      "ignore": ["node_modules", "*.test.js"]
+    }
+  ]
+}
