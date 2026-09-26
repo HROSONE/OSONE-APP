@@ -8,7 +8,7 @@ Planos do OSTIE (decididos em 26/09/2026):
 - Grátis: conversar (texto e voz), abrir apps, ações diretas; agente na tela com 10 ações por dia; até 2 rotinas.
 - Pro (R$ 29,90/mês ou R$ 239/ano): tudo sem limite, jogos e editores, rotinas por notificação, imagens, "Ei, Ostie", Jev.
 - Empresa (R$ 99,90/mês por aparelho): Pro + base de conhecimento.
-- Na branch: regras (`Plans.kt`), `PlanStore`, `OstieAccount` (login e assinatura), seção "Seu plano" e Cloud Functions (`firebase/ostie-functions`).
+- Na branch: regras (`Plans.kt`), `PlanStore`, `OstieAccount` (login e assinatura), seção "Seu plano" e servidor na Vercel (`server/ostie-api`, sem Blaze).
 - Falta o usuário: passos de `docs/ASSINATURA.md` (Stripe, Firebase, deploy das funções, segredos no GitHub). Os limites ligam sozinhos quando os segredos existirem.
 
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
