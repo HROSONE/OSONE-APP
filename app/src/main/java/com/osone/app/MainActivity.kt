@@ -16,6 +16,7 @@ import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -232,6 +233,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             OstieTheme(darkMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    // Voltar do Android volta uma tela (Live, Ajustes, Rotinas, Escrita → chat); só no chat ele sai do app.
+                    BackHandler(enabled = !showWelcome && (showLive || showSettings || showRoutines || showWriting)) {
+                        when {
+                            showLive -> { showLive = false; volumeControlStream = AudioManager.STREAM_MUSIC }
+                            showSettings -> showSettings = false
+                            showRoutines -> showRoutines = false
+                            else -> showWriting = false
+                        }
+                    }
                     if (showWelcome) WelcomeScreen(keySaved = welcomeKeySaved, keyStatus = viewModel.keyStatus,
                         onSaveKey = { input -> viewModel.saveKey(input, ChatProvider.GEMINI).also { if (it) welcomeKeySaved = true } },
                         onOpenKeyPage = {

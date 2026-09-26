@@ -4,8 +4,6 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Na branch, aguardando a janela pública: freio para o agente que só olha a tela (`LookLoop`: avisa na 3ª olhada seguida, recusa da 4ª em diante) e tap_mark que toca pelo texto quando a tela mudou. Caso real: na Play Store ele olhou a tela sem parar em vez de tocar em "Pagamentos e assinaturas".
-
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).
@@ -49,3 +47,5 @@ Ideias maiores para depois:
 | 0.15.101 | Jev (TypeSafe AI), opcional e desligado por padrão: decide pesquisa e ações no chat Groq/OpenRouter e confere pelo sentido as notificações de rotinas com filtro em frase |
 | 0.15.103 | Visão de tela: print com números sobre os botões e grade em pixels reais, tap_mark, gestos com duração (jogos), print automático em apps sem botões legíveis, compartilhamento que pula quadros iguais, aviso "OSTIE olhou a tela" e guias de 8 editores de vídeo |
 | 0.15.105 | Auditoria: esquecer na memória só palavra inteira (com cópia), memória e base de conhecimento cheias recusam em vez de apagar, rotinas por notificação não obedecem texto de terceiros, cópia de segurança avisa falhas, marcas vencidas da tela; OSTIE como assistente padrão do Android e "Ei, Ostie" que pausa em ligações e descansa em silêncio |
+| 0.15.107 | Agente não fica mais olhando a tela sem agir (freio na 4ª olhada seguida; toque pelo texto quando a tela mudou) |
+| 0.15.109 | Pesquisa do chat com consulta escrita pelo modelo e ano de hoje; resultados com data; Live fala o que vai fazer e dá retorno a cada etapa |
