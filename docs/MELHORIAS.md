@@ -49,3 +49,4 @@ Ideias maiores para depois:
 | 0.15.105 | Auditoria: esquecer na memória só palavra inteira (com cópia), memória e base de conhecimento cheias recusam em vez de apagar, rotinas por notificação não obedecem texto de terceiros, cópia de segurança avisa falhas, marcas vencidas da tela; OSTIE como assistente padrão do Android e "Ei, Ostie" que pausa em ligações e descansa em silêncio |
 | 0.15.107 | Agente não fica mais olhando a tela sem agir (freio na 4ª olhada seguida; toque pelo texto quando a tela mudou) |
 | 0.15.109 | Pesquisa do chat com consulta escrita pelo modelo e ano de hoje; resultados com data; Live fala o que vai fazer e dá retorno a cada etapa |
+| 0.15.111 | Botão voltar do Android volta uma tela; OSTIE volta a ser interrompido pela voz enquanto fala (barreira de eco corrigida) |
