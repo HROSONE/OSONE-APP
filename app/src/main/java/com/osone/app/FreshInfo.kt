@@ -27,6 +27,48 @@ object FreshInfo {
             "esta semana|essa semana|neste m[eê]s|nesse m[eê]s|20[2-9][0-9])\\b",
         RegexOption.IGNORE_CASE)
 
+    private val recency = Regex("\\b(hoje|agora|atual|atuais|atualmente|recente|recentes|[uú]ltim[oa]s?|novidades|not[ií]cias?|" +
+        "esta semana|essa semana|este m[eê]s|neste m[eê]s|este ano|deste ano|lan[cç]amentos?|pre[cç]o|cota[cç][aã]o|placar)\\b",
+        RegexOption.IGNORE_CASE)
+    private val year = Regex("\\b(19|20)\\d{2}\\b")
+
+    /**
+     * Consulta com o ano certo: os modelos escrevem o ano do treino ("notícias de hoje 2024"). Em pedidos de coisa
+     * atual, ano passado vira o ano de hoje e, sem ano, o ano de hoje entra no fim. Pedido histórico ("Copa de 2014")
+     * fica como está.
+     */
+    fun datedQuery(query: String, currentYear: Int): String {
+        val clean = query.trim()
+        if (!recency.containsMatchIn(clean)) return clean
+        val years = year.findAll(clean).map { it.value.toInt() }.toList()
+        return when {
+            years.isEmpty() -> "$clean $currentYear"
+            years.all { it < currentYear } && years.size == 1 -> year.replace(clean, currentYear.toString())
+            else -> clean
+        }
+    }
+
+    /**
+     * Instrução para o modelo escrever a consulta de busca a partir da conversa (a frase do usuário, como
+     * "e o do Flamengo, me fala aí", é ruim de pesquisar do jeito que veio).
+     */
+    fun queryWriter(now: Date = Date()): String = "Hoje é ${today(now)}. Você escreve consultas de busca para o Google. " +
+        "Leia a conversa e responda APENAS com a consulta que acha a resposta da última mensagem do usuário: " +
+        "de 3 a 12 palavras, com os nomes, lugares e assuntos certos (resolva \"isso\", \"ele\", \"e o outro\" pela conversa), " +
+        "sem aspas, sem explicação e sem ano, a menos que o usuário tenha pedido um ano."
+
+    /** Limpa a consulta escrita pelo modelo; se vier vazia, longa demais ou com cara de resposta, usa [fallback]. */
+    fun cleanModelQuery(text: String, fallback: String): String {
+        val line = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
+            .removePrefix("Consulta:").removePrefix("consulta:").trim().trim('"', '\'', '“', '”', '`').trim()
+        val words = line.split(Regex("\\s+")).filter { it.isNotBlank() }
+        return if (words.size in 1..20 && line.length <= 160) line else fallback
+    }
+
+    /** Data de hoje para anexar aos resultados e à pesquisa do Gemini. */
+    fun today(now: Date = Date()): String = synchronized(dayFormat) { dayFormat.format(now) }
+    private val dayFormat = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR"))
+
     /** Pedido explícito: "pesquisa", "busca na internet", "procura no Google"… */
     private val command = Regex("\\b(pesquis[aeo]r?|pesquisa[r]?|busque|busca(r)? n[ao] (internet|web|google)|" +
         "procur[ae](r)? n[ao] (internet|web|google)|no google|na internet|na web)\\b", RegexOption.IGNORE_CASE)
@@ -53,7 +95,8 @@ object FreshInfo {
 
     /** Resultados da pesquisa anexados ao pedido do usuário, só na chamada ao modelo (não vão para o histórico). */
     fun withResults(request: String, results: String): String =
-        "$request\n\n[Resultados de uma pesquisa na web feita agora pelo app. Responda com base neles, diga a data " +
-            "das notícias quando houver e cite as fontes (título e link). Se não bastarem, diga isso em vez de inventar.]\n" +
+        "$request\n\n[Resultados de uma pesquisa na web feita agora pelo app (hoje é ${today()}). Responda com base neles, diga a data " +
+            "das notícias quando houver e cite as fontes (título e link). Resultado de ano anterior não é notícia de hoje: diga a data dele. " +
+            "Se não bastarem, diga isso em vez de inventar.]\n" +
             results.take(6_000)
 }
