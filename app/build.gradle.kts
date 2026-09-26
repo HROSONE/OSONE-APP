@@ -17,6 +17,14 @@ android {
         versionName = System.getenv("OSTIE_VERSION_NAME") ?: "0.15.0"
         // Reconhecedor da escuta ativa (Vosk) só para celulares ARM: evita ~20 MB de bibliotecas x86 no APK.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // Login e assinatura (Firebase do OSONE): valores vêm dos segredos da CI. Vazios = planos desligados.
+        fun env(name: String) = "\"" + (System.getenv(name) ?: "").replace("\"", "") + "\""
+        buildConfigField("String", "FIREBASE_PROJECT_ID", env("OSTIE_FIREBASE_PROJECT_ID"))
+        buildConfigField("String", "FIREBASE_APP_ID", env("OSTIE_FIREBASE_APP_ID"))
+        buildConfigField("String", "FIREBASE_API_KEY", env("OSTIE_FIREBASE_API_KEY"))
+        buildConfigField("String", "FIREBASE_WEB_CLIENT_ID", env("OSTIE_FIREBASE_WEB_CLIENT_ID"))
+        // Servidor da assinatura na Vercel (ex.: https://ostie-api.vercel.app), rotas /api/checkout, /api/portal.
+        buildConfigField("String", "OSTIE_API_URL", env("OSTIE_API_URL"))
     }
     signingConfigs {
         create("stable") {
@@ -41,7 +49,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     // Testes de tela rodam na JVM com Robolectric (sem emulador), dentro de testDebugUnitTest.
     testOptions { unitTests { isIncludeAndroidResources = true } }
 }
@@ -62,6 +70,12 @@ dependencies {
     // Escuta ativa offline ("Ei, Ostie"); @aar sem dependências transitivas, com o JNA para Android.
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+    // Conta OSTIE: login Firebase (Google ou e-mail) e plano da assinatura.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     testImplementation("junit:junit:4.13.2")
     // org.json real nos testes JVM (o android.jar só traz stubs).
     testImplementation("org.json:json:20250517")

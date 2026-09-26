@@ -1,0 +1,11 @@
+{
+  "name": "ostie-api",
+  "private": true,
+  "description": "Servidor da assinatura do OSTIE (Vercel): Stripe + login Firebase do OSONE",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test lib/plans.test.js" },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "stripe": "^17.4.0"
+  }
+}

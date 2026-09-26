@@ -193,6 +193,7 @@ class OsoneViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateJevOn(value: Boolean) {
+        if (value && !PlanStore.allows(PlanFeature.JEV)) { jevStatus = PlanRules.blocked(PlanFeature.JEV); return }
         jevOn = value
         settings.edit().putBoolean(JevDecisions.PREF, value).apply()
     }

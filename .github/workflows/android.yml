@@ -34,9 +34,22 @@ jobs:
         with:
           gradle-version: '8.13'
       - name: Testar
-        run: gradle :app:testDebugUnitTest --no-daemon
+        # O Robolectric baixa o Android de teste na hora; se a rede cair no download, tenta mais uma vez
+        # (os testes rodam de novo inteiros; nenhum é pulado).
+        run: |
+          gradle :app:testDebugUnitTest --no-daemon || {
+            echo 'Primeira tentativa falhou; repetindo (download do Robolectric pode cair por rede).'
+            gradle :app:testDebugUnitTest --no-daemon
+          }
       - name: Compilar APK de teste (PR)
         if: github.event_name == 'pull_request'
+        # Conta OSTIE (Firebase do OSONE): sem esses segredos, o app sai sem login e com os planos desligados.
+        env:
+          OSTIE_FIREBASE_PROJECT_ID: ${{ secrets.OSTIE_FIREBASE_PROJECT_ID }}
+          OSTIE_FIREBASE_APP_ID: ${{ secrets.OSTIE_FIREBASE_APP_ID }}
+          OSTIE_FIREBASE_API_KEY: ${{ secrets.OSTIE_FIREBASE_API_KEY }}
+          OSTIE_FIREBASE_WEB_CLIENT_ID: ${{ secrets.OSTIE_FIREBASE_WEB_CLIENT_ID }}
+          OSTIE_API_URL: ${{ secrets.OSTIE_API_URL }}
         run: gradle :app:assembleDebug --no-daemon
       - name: Compilar APK com assinatura permanente
         if: github.event_name != 'pull_request'
@@ -44,6 +57,11 @@ jobs:
           OSTIE_SIGNING_KEYSTORE_BASE64: ${{ secrets.OSTIE_SIGNING_KEYSTORE_BASE64 }}
           OSTIE_SIGNING_PASSWORD: ${{ secrets.OSTIE_SIGNING_PASSWORD }}
           OSTIE_SIGNING_ALIAS: ${{ secrets.OSTIE_SIGNING_ALIAS }}
+          OSTIE_FIREBASE_PROJECT_ID: ${{ secrets.OSTIE_FIREBASE_PROJECT_ID }}
+          OSTIE_FIREBASE_APP_ID: ${{ secrets.OSTIE_FIREBASE_APP_ID }}
+          OSTIE_FIREBASE_API_KEY: ${{ secrets.OSTIE_FIREBASE_API_KEY }}
+          OSTIE_FIREBASE_WEB_CLIENT_ID: ${{ secrets.OSTIE_FIREBASE_WEB_CLIENT_ID }}
+          OSTIE_API_URL: ${{ secrets.OSTIE_API_URL }}
         run: |
           if [ -z "$OSTIE_SIGNING_KEYSTORE_BASE64" ] || [ -z "$OSTIE_SIGNING_PASSWORD" ] || [ -z "$OSTIE_SIGNING_ALIAS" ]; then
             echo 'Assinatura permanente não configurada; consulte docs/ATUALIZACOES.md.'
@@ -53,6 +71,9 @@ jobs:
           trap 'rm -f "$OSTIE_SIGNING_KEYSTORE_FILE"' EXIT
           printf '%s' "$OSTIE_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$OSTIE_SIGNING_KEYSTORE_FILE"
           chmod 600 "$OSTIE_SIGNING_KEYSTORE_FILE"
+          # Impressões públicas do certificado (o Firebase pede a SHA-1 e a SHA-256 para o login com Google).
+          keytool -list -v -keystore "$OSTIE_SIGNING_KEYSTORE_FILE" -alias "$OSTIE_SIGNING_ALIAS" \
+            -storepass "$OSTIE_SIGNING_PASSWORD" 2>/dev/null | grep -E 'SHA1:|SHA256:' || true
           gradle :app:assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'

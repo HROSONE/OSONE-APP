@@ -37,9 +37,14 @@ fun RoutinesScreen(store: RoutineStore, diagnostics: AppDiagnostics, onDiagnosti
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 if (creating) RoutineForm(initial = null, onCancel = { creating = false }, onSave = { title, instruction, hour, minute, days, reminder ->
-                    store.add(title, instruction, hour, minute, days, reminder)
-                    creating = false
-                    onNeedNotifications()
+                    // Limite do plano ou dado inválido: aviso na tela, sem fechar o app.
+                    try {
+                        store.add(title, instruction, hour, minute, days, reminder)
+                        creating = false
+                        onNeedNotifications()
+                    } catch (failure: IllegalArgumentException) {
+                        Toast.makeText(context, failure.message ?: "Não consegui criar a rotina.", Toast.LENGTH_LONG).show()
+                    }
                 }) else Button(onClick = { editing = null; creating = true }, modifier = Modifier.fillMaxWidth()) { Text("Nova rotina") }
             }
             // Sem "Alarmes e lembretes", o Android pode atrasar a rotina em até 10 minutos.

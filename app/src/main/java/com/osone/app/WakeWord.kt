@@ -64,6 +64,7 @@ object WakeWord {
 
     /** Liga a escuta (com o app aberto): baixa o modelo na primeira vez e inicia o serviço. */
     fun enable(context: Context) {
+        if (!PlanStore.allows(PlanFeature.WAKE_WORD)) { status = PlanRules.blocked(PlanFeature.WAKE_WORD); return }
         val app = context.applicationContext
         app.getSharedPreferences("osone_config", 0).edit().putBoolean(PREF, true).apply()
         on = true

@@ -28,6 +28,7 @@ fun SettingsScreen(viewModel: OsoneViewModel, live: LiveVoiceViewModel, codeAuth
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
             .padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SectionCard("Seu plano", OstieIcons.Shield, collapsible = true, initiallyOpen = false) { PlanSection() }
             SectionCard("Perfil e aparência", OstieIcons.Settings, collapsible = true, initiallyOpen = false) {
                 val context = LocalContext.current
                 val profile = remember { UserProfile.get(context) }
@@ -366,4 +367,81 @@ private fun AssistantRole() {
             try { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true } catch (_: Exception) { false }
         }
     }) { Text(if (held) "Ver apps padrão" else "Escolher assistente padrão") }
+}
+
+/** Planos do OSTIE: conta, plano atual, assinatura pela Stripe e o que cada plano libera. */
+@Composable
+private fun PlanSection() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    if (PlanStore.ENFORCED) {
+        Text("Plano atual: ${PlanStore.current.label}", style = MaterialTheme.typography.bodyLarge)
+        if (PlanStore.current == Plan.GRATIS) Hint("Ações do agente na tela hoje: ${PlanStore.agentUsedToday(context)} de ${PlanRules.FREE_AGENT_ACTIONS}.")
+        AccountBox(scope)
+    } else Text("Lançamento: todos os recursos liberados por enquanto.", color = OstieColors.Success)
+    PlanCard(Plan.GRATIS, "Conversar por texto e voz, abrir apps, alarmes, lembretes, agenda, pesquisa e memória. " +
+        "Agente na tela com ${PlanRules.FREE_AGENT_ACTIONS} ações por dia e até ${PlanRules.FREE_ROUTINES} rotinas.")
+    PlanCard(Plan.PRO, "Tudo do Grátis, sem limites: agente na tela, jogos e editores de vídeo, rotinas (também por notificação), " +
+        "criar imagens, \"Ei, Ostie\" e Jev.")
+    PlanCard(Plan.EMPRESA, "Tudo do Pro + base de conhecimento para atender clientes com as informações do seu negócio.")
+    Hint("Em todos os planos você usa as suas próprias chaves de IA. Tem cupom de presente? Use no pagamento.")
+}
+
+/** Entrar (Google ou e-mail) e assinar; o pagamento abre no navegador, pela Stripe. */
+@Composable
+private fun AccountBox(scope: kotlinx.coroutines.CoroutineScope) {
+    val context = LocalContext.current
+    val busy = OstieAccount.busy
+    val email = OstieAccount.email
+    if (email == null) {
+        Text("Entre com a sua conta para assinar e liberar o plano neste celular.", style = MaterialTheme.typography.bodyMedium)
+        Button(onClick = { (context as? android.app.Activity)?.let { scope.launch { OstieAccount.signInWithGoogle(it) } } },
+            enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Entrar com Google") }
+        var address by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        OutlinedTextField(address, { address = it.trim() }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("E-mail") })
+        OutlinedTextField(password, { password = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Senha") }, visualTransformation = PasswordVisualTransformation())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { scope.launch { OstieAccount.signInWithEmail(context, address, password, create = false) } },
+                enabled = !busy && address.isNotBlank() && password.isNotBlank()) { Text("Entrar") }
+            TextButton(onClick = { scope.launch { OstieAccount.signInWithEmail(context, address, password, create = true) } },
+                enabled = !busy && address.isNotBlank() && password.isNotBlank()) { Text("Criar conta") }
+        }
+    } else {
+        Hint("Conta: $email")
+        if (PlanStore.current == Plan.GRATIS || PlanStore.current == Plan.PRO) {
+            if (PlanStore.current == Plan.GRATIS) {
+                Button(onClick = { scope.launch { OstieAccount.subscribe(context, "PRO_MENSAL") } }, enabled = !busy,
+                    modifier = Modifier.fillMaxWidth()) { Text("Assinar Pro · R$ 29,90 por mês") }
+                OutlinedButton(onClick = { scope.launch { OstieAccount.subscribe(context, "PRO_ANUAL") } }, enabled = !busy,
+                    modifier = Modifier.fillMaxWidth()) { Text("Pro anual · R$ 239 (economize 33%)") }
+            }
+            OutlinedButton(onClick = { scope.launch { OstieAccount.subscribe(context, "EMPRESA") } }, enabled = !busy,
+                modifier = Modifier.fillMaxWidth()) { Text("Assinar Empresa · R$ 99,90 por mês") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (PlanStore.current != Plan.GRATIS) TextButton(onClick = { scope.launch { OstieAccount.manage(context) } },
+                enabled = !busy) { Text("Gerenciar assinatura") }
+            TextButton(onClick = { scope.launch { OstieAccount.refreshPlan(context, force = true) } }, enabled = !busy) { Text("Atualizar") }
+            TextButton(onClick = { OstieAccount.signOut(context) }, enabled = !busy) { Text("Sair") }
+        }
+    }
+    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    OstieAccount.status?.let { Hint(it) }
+}
+
+@Composable
+private fun PlanCard(plan: Plan, detail: String) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(plan.label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(plan.price, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

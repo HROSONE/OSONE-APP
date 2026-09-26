@@ -4,6 +4,13 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
+Planos do OSTIE (decididos em 26/09/2026):
+- Grátis: conversar (texto e voz), abrir apps, ações diretas; agente na tela com 10 ações por dia; até 2 rotinas.
+- Pro (R$ 29,90/mês ou R$ 239/ano): tudo sem limite, jogos e editores, rotinas por notificação, imagens, "Ei, Ostie", Jev.
+- Empresa (R$ 99,90/mês por aparelho): Pro + base de conhecimento.
+- Na branch: regras (`Plans.kt`), `PlanStore`, `OstieAccount` (login e assinatura), seção "Seu plano" e servidor na Vercel (`server/ostie-api`, sem Blaze).
+- Falta o usuário: passos de `docs/ASSINATURA.md` (Stripe, Firebase, deploy das funções, segredos no GitHub). Os limites ligam sozinhos quando os segredos existirem.
+
 Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).
@@ -49,3 +56,4 @@ Ideias maiores para depois:
 | 0.15.105 | Auditoria: esquecer na memória só palavra inteira (com cópia), memória e base de conhecimento cheias recusam em vez de apagar, rotinas por notificação não obedecem texto de terceiros, cópia de segurança avisa falhas, marcas vencidas da tela; OSTIE como assistente padrão do Android e "Ei, Ostie" que pausa em ligações e descansa em silêncio |
 | 0.15.107 | Agente não fica mais olhando a tela sem agir (freio na 4ª olhada seguida; toque pelo texto quando a tela mudou) |
 | 0.15.109 | Pesquisa do chat com consulta escrita pelo modelo e ano de hoje; resultados com data; Live fala o que vai fazer e dá retorno a cada etapa |
+| 0.15.111 | Botão voltar do Android volta uma tela; OSTIE volta a ser interrompido pela voz enquanto fala (barreira de eco corrigida) |
