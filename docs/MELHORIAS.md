@@ -4,7 +4,7 @@ Backlog mantido pelo comando `/aprimorar`. Cada sessão lê este arquivo antes d
 
 ## Pendentes
 
-Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`); na branch, aguardando a janela pública. O usuário tirou o 4 e o 5.
+Plano de 26/09/2026 (visão de tela): feitos 1, 2, 3, 6 e 7, mais guias de editores de vídeo (`EditorGuides`), na 0.15.103. O usuário tirou o 4 e o 5.
 Objetivo declarado: o agente jogar sozinho e editar vídeos em editores profissionais. Próximos passos possíveis:
 - Laço de jogo com o compartilhamento de tela (agir a cada quadro novo sem esperar a fala).
 
@@ -45,3 +45,4 @@ Ideias maiores para depois:
 | 0.15.97 | "Ei, Ostie" volta a baixar o reconhecedor: aceita o modelo de voz no formato antigo (pt-0.3) e avisa download interrompido |
 | 0.15.99 | Várias conversas com busca, criar imagens no chat, boas-vindas no primeiro uso, Ajustes recolhíveis, cópia de segurança de ajustes e rotinas, "Ei, Ostie" pausa com bateria fraca |
 | 0.15.101 | Jev (TypeSafe AI), opcional e desligado por padrão: decide pesquisa e ações no chat Groq/OpenRouter e confere pelo sentido as notificações de rotinas com filtro em frase |
+| 0.15.103 | Visão de tela: print com números sobre os botões e grade em pixels reais, tap_mark, gestos com duração (jogos), print automático em apps sem botões legíveis, compartilhamento que pula quadros iguais, aviso "OSTIE olhou a tela" e guias de 8 editores de vídeo |
