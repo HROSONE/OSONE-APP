@@ -389,9 +389,8 @@ class LiveVoiceViewModel(application: Application) : AndroidViewModel(applicatio
                         generationSetup.put("sessionResumption", resume)
                             .put("inputAudioTranscription", JSONObject())
                             .put("outputAudioTranscription", JSONObject())
-                        // No alto-falante, o eco da própria voz não deve contar como o usuário falando (cortava a fala).
-                        if (echoGuard) generationSetup.put("realtimeInputConfig", JSONObject().put("automaticActivityDetection",
-                            JSONObject().put("startOfSpeechSensitivity", "START_SENSITIVITY_LOW")))
+                        // Sensibilidade padrão do serviço: o eco já é barrado no aparelho (LiveAudioEngine manda silêncio
+                        // enquanto o OSTIE fala, até a voz do usuário vencer o eco). Com LOW, interromper ficava difícil demais.
                     }
                     val tools = JSONArray()
                     if (localToolsAvailable) tools.put(JSONObject().put("functionDeclarations", localTools.declarations()

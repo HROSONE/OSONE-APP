@@ -46,4 +46,28 @@ class EchoCalibrationTest {
         calibration.falseBarge(); calibration.reset()
         assertFalse(calibration.adjusted)
     }
+
+    @Test fun oldStuckCalibrationIsDiscarded() {
+        val old = EchoCalibration.fromJson("{\"ratio\":4.5,\"echo\":0.4,\"false\":20,\"real\":1}")
+        assertEquals(EchoCalibration.DEFAULT_RATIO, old.ratio, 0.001f)
+        assertFalse(old.adjusted)
+    }
+
+    @Test fun echoRisesSlowlySoTheUsersVoiceIsNotLearnedAsEcho() {
+        var echo = 0.03f
+        // Dois décimos de segundo de fala abaixo da barreira quase não mexem no eco medido.
+        repeat(5) { echo = EchoCalibration.nextEcho(echo, 0.15f) }
+        assertTrue(echo < 0.06f)
+        // Silêncio derruba rápido.
+        repeat(30) { echo = EchoCalibration.nextEcho(echo, 0f) }
+        assertEquals(EchoCalibration.MIN_ECHO, echo, 0.005f)
+        // Mesmo gritando, a barreira nunca passa do teto.
+        assertTrue(EchoCalibration(EchoCalibration.MAX_RATIO).threshold(EchoCalibration.MAX_ECHO) <= EchoCalibration.MAX_THRESHOLD)
+    }
+
+    @Test fun falseAndRealInterruptionsWeighTheSame() {
+        val calibration = EchoCalibration()
+        calibration.falseBarge(); calibration.realBarge()
+        assertEquals(EchoCalibration.DEFAULT_RATIO, calibration.ratio, 0.001f)
+    }
 }

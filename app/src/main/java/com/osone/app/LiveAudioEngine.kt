@@ -137,7 +137,7 @@ class LiveAudioEngine(
                 // O alto-falante está tocando: o microfone ouve a própria resposta. O Gemini
                 // recebe silêncio até a fala do usuário superar claramente o eco medido.
                 if (level > threshold(echoLevel)) loudFrames++
-                else { loudFrames = 0; echoLevel = maxOf(level, echoLevel * 0.97f).coerceAtMost(0.4f); measuredEcho = echoLevel }
+                else { loudFrames = 0; echoLevel = EchoCalibration.nextEcho(echoLevel, level); measuredEcho = echoLevel }
                 held.addLast(encoded)
                 if (held.size > BARGE_FRAMES) held.removeFirst()
                 if (loudFrames >= BARGE_FRAMES) {
