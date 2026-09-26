@@ -10,7 +10,7 @@ O app entra com a conta do Firebase do OSONE, o pagamento é pela Stripe (mesma 
 2. Produtos → **OSTIE Empresa**: R$ 99,90 mensal.
 3. Anote os três ids de preço (`price_...`).
 4. Cupom de presente para quem já tinha o OSTIE: Cupons → 100% por 3 meses → crie um código promocional (ex.: `OSTIEPRESENTE`). O checkout aceita códigos.
-5. Portal do cliente (Configurações → Billing → Customer portal): ative cancelar e trocar de plano entre os produtos do OSTIE.
+5. Portal do cliente: **não mexa** no portal padrão da conta (é o do OSONE). As funções criam sozinhas um portal só do OSTIE (cancelar e trocar cartão, sem trocar de plano).
 
 ## 2. Firebase (projeto do OSONE)
 1. O projeto precisa do plano **Blaze** (Cloud Functions) e do **Firestore** ativo.

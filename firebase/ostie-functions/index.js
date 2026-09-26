@@ -87,7 +87,30 @@ exports.ostieCheckout = onRequest({ secrets: [STRIPE_SECRET_KEY] }, async (req, 
   }
 });
 
-/** Portal da Stripe: trocar cartão, mudar de plano ou cancelar. */
+/**
+ * Portal só do OSTIE (criado uma vez e guardado no Firestore): trocar cartão, ver faturas e cancelar no fim do
+ * período. Sem "trocar de plano", para não aparecerem os planos do OSONE, que usa o portal padrão da conta.
+ */
+async function portalConfiguration() {
+  const ref = admin.firestore().collection('ostie_config').doc('portal');
+  const saved = await ref.get();
+  if (saved.exists && saved.get('id')) return saved.get('id');
+  const created = await stripe().billingPortal.configurations.create({
+    business_profile: { headline: 'OSTIE: gerencie sua assinatura' },
+    features: {
+      customer_update: { enabled: true, allowed_updates: ['email'] },
+      invoice_history: { enabled: true },
+      payment_method_update: { enabled: true },
+      subscription_cancel: { enabled: true, mode: 'at_period_end' },
+      subscription_update: { enabled: false },
+    },
+    metadata: { app: 'ostie' },
+  });
+  await ref.set({ id: created.id, criadoEm: Date.now() });
+  return created.id;
+}
+
+/** Portal da Stripe do OSTIE: trocar cartão, ver faturas ou cancelar. */
 exports.ostiePortal = onRequest({ secrets: [STRIPE_SECRET_KEY] }, async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ erro: 'Use POST.' });
   try {
@@ -96,6 +119,7 @@ exports.ostiePortal = onRequest({ secrets: [STRIPE_SECRET_KEY] }, async (req, re
     if (!doc.exists) return res.status(404).json({ erro: 'Você ainda não tem assinatura do OSTIE.' });
     const session = await stripe().billingPortal.sessions.create({
       customer: doc.get('customerId'),
+      configuration: await portalConfiguration(),
       return_url: `${baseUrl(req)}/ostieVolta?ok=1`,
     });
     res.json({ url: session.url });
