@@ -34,7 +34,13 @@ jobs:
         with:
           gradle-version: '8.13'
       - name: Testar
-        run: gradle :app:testDebugUnitTest --no-daemon
+        # O Robolectric baixa o Android de teste na hora; se a rede cair no download, tenta mais uma vez
+        # (os testes rodam de novo inteiros; nenhum é pulado).
+        run: |
+          gradle :app:testDebugUnitTest --no-daemon || {
+            echo 'Primeira tentativa falhou; repetindo (download do Robolectric pode cair por rede).'
+            gradle :app:testDebugUnitTest --no-daemon
+          }
       - name: Compilar APK de teste (PR)
         if: github.event_name == 'pull_request'
         # Conta OSTIE (Firebase do OSONE): sem esses segredos, o app sai sem login e com os planos desligados.
